@@ -97,6 +97,7 @@ button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-vis
 .sw.l{width:12px;height:12px;border:1.5px solid var(--L);background:var(--L-soft);border-radius:2px}
 .sw.r{width:12px;height:12px;border:1.5px solid var(--R);background:var(--R-soft);border-radius:2px}
 .sw.c{width:12px;height:12px;border:2px solid var(--L);border-radius:50%;background:var(--surface)}
+.sw.rg{width:10px;height:10px;border-radius:50%;background:var(--tunnel);box-shadow:0 0 0 2px var(--surface),0 0 0 3.5px var(--tunnel),0 0 0 5.5px var(--surface),0 0 0 7px var(--tunnel);margin:0 4px}
 .sw.n{width:22px;height:12px;border:1.2px solid var(--line-strong);border-radius:6px;background:var(--zone)}
 .trace{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line);padding-top:10px;min-height:46px}
 .steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-family:var(--f-mono);font-size:12.5px}
@@ -140,6 +141,17 @@ select{font:500 13px var(--f-mono);color:var(--ink);background:var(--bg);border:
 .chip{font:500 11.5px var(--f-mono);border:1px solid var(--line-strong);background:var(--bg);color:var(--ink);border-radius:999px;padding:2px 9px;cursor:pointer}
 .chip:hover{border-color:var(--ink)}
 .empty,.hintline{color:var(--muted);font-size:13px;margin:0}
+.cardhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.tool.sm{font-size:12px;padding:2px 8px}
+.sess{display:flex;flex-direction:column;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.sess:last-child{border-bottom:0;padding-bottom:0}
+.shead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font:500 13px var(--f-mono)}
+.shead .sid{font-weight:600;color:var(--tunnel);background:var(--tunnel-soft);border-radius:3px;padding:0 6px}
+.shead .via{font-size:11.5px;color:var(--muted)}
+.shead .tool{margin-left:auto}
+.sess.off .sid{color:var(--bad);background:var(--bad-soft)}
+.sess .why{font:11.5px var(--f-mono);color:var(--bad)}
+.scmd{font:12px var(--f-mono);color:var(--ink-soft);background:var(--bg);border-radius:4px;padding:4px 6px;word-break:break-word}
 
 /* inspector */
 .insp{display:flex;flex-direction:column;gap:10px}
@@ -163,7 +175,7 @@ select{font:500 13px var(--f-mono);color:var(--ink);background:var(--bg);border:
 .chlist .dot{margin-left:auto;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--line-strong);flex:none}
 .chlist .dot.done{background:var(--good);border-color:var(--good)}
 .chlist .tg{font:600 10.5px var(--f-mono);letter-spacing:.04em;padding:0 5px;border-radius:3px}
-.tg.L{color:var(--L);background:var(--L-soft)} .tg.R{color:var(--R);background:var(--R-soft)} .tg.S{color:var(--bad);background:var(--bad-soft)}
+.tg.L{color:var(--L);background:var(--L-soft)} .tg.R{color:var(--R);background:var(--R-soft)} .tg.S{color:var(--bad);background:var(--bad-soft)} .tg.C{color:var(--tunnel);background:var(--tunnel-soft)}
 .goal{margin:0;font-size:15.5px;line-height:1.45}
 .goal code,.sol code{font-family:var(--f-mono);font-size:13px;background:var(--bg);padding:1px 4px;border-radius:3px}
 .checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
@@ -239,7 +251,9 @@ dialog::backdrop{background:rgba(10,16,22,.45)}
 .pk.out circle{fill:var(--egress)}
 .pk.tunnel circle{fill:var(--tunnel)}
 .pk.tunnel .ring{fill:none;stroke:var(--tunnel);stroke-width:2;opacity:.6}
-.pk .ring{fill:none;stroke:none}
+.pk .ring,.pk .ring2,.pk .ring3{fill:none;stroke:none}
+.pk.tunnel.l2 .ring2,.pk.tunnel.l3 .ring2,.pk.tunnel.l3 .ring3{stroke:var(--tunnel);stroke-width:2;opacity:.45}
+.hop.tunnel.l2{stroke-width:8} .hop.tunnel.l3{stroke-width:11}
 .pk.dead circle{fill:var(--bad)}
 .endmark circle{stroke-width:2}
 .endmark.ok circle{fill:var(--good-soft);stroke:var(--good)} .endmark.ok text{fill:var(--good)}
@@ -301,7 +315,8 @@ dialog::backdrop{background:rgba(10,16,22,.45)}
       <div class="legend">
         <span><i class="sw n"></i>network</span>
         <span><i class="sw"></i>to the tunnel opening</span>
-        <span><i class="sw t"></i>inside SSH (encrypted)</span>
+        <span><i class="sw t"></i>inside SSH (encrypted; a tunnel inside a tunnel is drawn narrower)</span>
+        <span><i class="sw rg"></i>rings on a packet = layers of SSH</span>
         <span><i class="sw e"></i>tunnel exit → destination</span>
         <span><i class="sw c"></i>listening port (inside a box = 127.0.0.1 only)</span>
         <span><i class="sw l"></i>-L</span>
@@ -344,11 +359,12 @@ dialog::backdrop{background:rgba(10,16,22,.45)}
         </div>
       </div>
 
+      <div class="card">
+        <div class="cardhead"><h2>SSH sessions</h2><button class="tool sm" id="close-all" type="button" hidden>Close all</button></div>
+        <div class="listeners" id="sessions"></div>
+      </div>
+
       <div id="panel-sandbox-2" class="side">
-        <div class="card">
-          <h2>Forwards in this session</h2>
-          <div class="listeners" id="listeners"></div>
-        </div>
         <div class="card">
           <h2>Examples · Classic layout</h2>
           <select id="examples" aria-label="Load an example command"></select>
@@ -444,6 +460,18 @@ const LAYOUTS={
       {id:'bastion',name:'bastion',role:'jump host',x:760,y:230,ifaces:[{net:'inet',ip:'203.0.113.10'},{net:'corp',ip:'10.0.0.1'}],services:[],sshd:{port:22,gp:'no',atf:'yes'}},
       {id:'db',name:'db',role:'server',x:1000,y:230,ifaces:[{net:'corp',ip:'10.0.0.30'}],services:[{port:5432,name:'postgres',bind:'all'}],sshd:null},
       {id:'ci',name:'ci',role:'build server',x:760,y:440,ifaces:[{net:'build',ip:'172.16.0.5'}],services:[{port:8080,name:'CI dashboard',bind:'all'}],sshd:null}]}},
+  chain:{name:'Deep lab: chain two hops',topo:{
+    networks:[
+      {id:'home',name:'Home LAN',cidr:'192.168.1.0/24',x:100,y:70},
+      {id:'inet',name:'Internet',cidr:'203.0.113.0/24',x:420,y:70},
+      {id:'corp',name:'Corp internal',cidr:'10.0.0.0/24',x:760,y:70},
+      {id:'lab',name:'Lab network',cidr:'10.9.0.0/24',x:1100,y:70}],
+    hosts:[
+      {id:'laptop',name:'laptop',role:'student',x:250,y:230,ifaces:[{net:'home',ip:'192.168.1.20'},{net:'inet',ip:''}],services:[{port:3000,name:'dev app',bind:'lo'}],sshd:null},
+      {id:'bastion',name:'bastion',role:'jump host',x:590,y:230,ifaces:[{net:'inet',ip:'203.0.113.10'},{net:'corp',ip:'10.0.0.1'}],services:[],sshd:{port:22,gp:'no',atf:'yes'}},
+      {id:'labgw',name:'labgw',role:'lab gateway',x:930,y:230,ifaces:[{net:'corp',ip:'10.0.0.40'},{net:'lab',ip:'10.9.0.1'}],services:[],sshd:{port:22,gp:'no',atf:'yes'}},
+      {id:'db',name:'db',role:'server',x:760,y:400,ifaces:[{net:'corp',ip:'10.0.0.30'}],services:[{port:5432,name:'postgres',bind:'all'}],sshd:null},
+      {id:'labapp',name:'labapp',role:'lab server',x:1100,y:400,ifaces:[{net:'lab',ip:'10.9.0.5'}],services:[{port:80,name:'lab app',bind:'all'}],sshd:null}]}},
   blank:{name:'Blank: laptop only',topo:{
     networks:[{id:'home',name:'Home LAN',cidr:'192.168.1.0/24',x:320,y:70}],
     hosts:[{id:'laptop',name:'laptop',role:'student',x:320,y:230,ifaces:[{net:'home',ip:'192.168.1.20'}],services:[{port:3000,name:'dev app',bind:'lo'}],sshd:null}]}}
@@ -457,7 +485,7 @@ const nm=id=>{const h=H(id);return h?h.name:id;};
 const hostIPs=id=>H(id).ifaces.filter(i=>i.ip).map(i=>i.ip);
 const onNet=(id,net)=>!!H(id)&&H(id).ifaces.some(i=>i.net===net);
 function addrOwner(ip){for(const h of T.hosts)for(const i of h.ifaces)if(i.ip&&i.ip===ip)return {host:h.id,net:i.net};return null;}
-function services(id){const h=H(id),s={};h.services.forEach(v=>s[v.port]=v);if(h.sshd)s[h.sshd.port]={port:h.sshd.port,name:'sshd',bind:'all'};return s;}
+function services(id){const h=H(id),s={};h.services.forEach(v=>s[v.port]=v);if(h.sshd)s[h.sshd.port]={port:h.sshd.port,name:'sshd',bind:'all',ssh:true};return s;}
 const svcAt=(id,port)=>services(id)[port];
 // A listener (or service) bound to `scope` accepts a connection that arrived on `iface`: 'lo' or the IP it was sent to.
 const scopeAllows=(scope,iface)=>scope==='all'||scope===iface;
@@ -583,30 +611,54 @@ function hostScope(host,b){
 const conflict=(list,port,scope)=>list.some(u=>u.port===port&&(u.scope==='all'||scope==='all'||u.scope===scope));
 const inUse=id=>Object.values(services(id)).map(s=>({port:s.port,scope:s.bind}));
 
-function simulate(cmd){
-  const p=parse(cmd),log=[],S={cmd,p,conn:false,tunnels:[],log,user:p.user||'alex'};
+// The hops an SSH connection's own TCP stream takes, built from the trace of connecting to sshd.
+// Each hop goes host a → host b over one network; `layers` lists the sessions wrapping it, outermost first.
+function segsFrom(tr,id){
+  const segs=[];
+  tr.steps.forEach(s=>{
+    if(s.kind==='direct'&&s.from!==s.host) segs.push({a:s.from,b:s.host,net:s.net,layers:[id]});
+    else if(s.kind==='in'&&s.from!==s.lhost) segs.push({a:s.from,b:s.lhost,net:s.net,layers:[id]});
+    else if(s.kind==='tunnel') segs.push({a:s.hop.a,b:s.hop.b,net:s.hop.net,layers:[...s.hop.layers,id]});
+    else if(s.kind==='out'&&s.dest!==s.t.far) segs.push({a:s.t.far,b:s.dest,net:s.net,layers:[id]});
+  });
+  return segs;
+}
+const revSegs=segs=>segs.slice().reverse().map(h=>({...h,a:h.b,b:h.a}));
+
+function simulate(cmd,id){
+  const p=parse(cmd),log=[],S={id,cmd,p,conn:false,tunnels:[],log,user:p.user||'alex',chan:2,segs:[],via:[],depth:0};
   log.push({c:'cmd',t:cmd});
-  if(p.fatal){p.errors.forEach(e=>log.push({c:'err',t:e}));return S;}
+  if(p.fatal){p.errors.forEach(e=>log.push({c:'err',t:e}));S.why=p.errors[0]||'';return S;}
   p.warns.forEach(w=>log.push({c:'dim',t:w}));
-  if(!p.host){log.push({c:'err',t:USAGE});return S;}
+  if(!p.host){log.push({c:'err',t:USAGE});S.why='No host given';return S;}
   const r=resolve(p.host,'laptop');
-  if(r.err){log.push({c:'err',t:'ssh: '+r.err});return S;}
-  const ri=reach('laptop',r),sshd=r.host?H(r.host).sshd:null;
-  if(ri===null){log.push({c:'err',t:`ssh: connect to host ${r.ip} port ${p.port}: Connection timed out`});
-    if(r.host) log.push({c:'dim',t:`(the laptop shares no network with ${nm(r.host)} at ${r.ip})`});return S;}
-  if(!sshd||sshd.port!==p.port){
-    log.push({c:'err',t:`ssh: connect to host ${r.ip} port ${p.port}: Connection refused`});
-    log.push({c:'dim',t:sshd?`(sshd on ${nm(r.host)} listens on port ${sshd.port})`:`(${nm(r.host)} doesn't run an SSH server)`});
-    return S;
+  if(r.err){log.push({c:'err',t:'ssh: '+r.err});S.why=r.err;return S;}
+  const addr=r.iface==='lo'?'127.0.0.1':r.ip;
+  if(!r.host){log.push({c:'err',t:`ssh: connect to host ${addr} port ${p.port}: Connection timed out`},{c:'dim',t:`(no host in this network has the address ${addr})`});S.why=`No host has the address ${addr}`;return S;}
+  // The SSH connection is an ordinary TCP connection, so it can run through tunnels that are already open.
+  const tr=connect('laptop',addr,p.port);
+  const tunneled=tr.steps.some(s=>s.kind==='tunnel');
+  const fail=(lines,why)=>{tr.out.forEach(o=>log.push({c:'err',t:o}));lines.forEach(l=>log.push(l));S.why=why;return S;};
+  if(!tr.ok){
+    if(tunneled) return fail([{c:'err',t:'kex_exchange_identification: Connection closed by remote host'},{c:'err',t:`Connection closed by ${addr} port ${p.port}`},{c:'dim',t:`(${tr.reason})`}],tr.reason);
+    return fail([{c:'err',t:`ssh: connect to host ${addr} port ${p.port}: Connection ${/refused/i.test(tr.reason)?'refused':'timed out'}`},{c:'dim',t:`(${tr.reason})`}],tr.reason);
   }
-  const srv=r.host,cfg=sshd;
-  S.conn=true;S.server=srv;S.net=r.net;S.serverIP=r.ip;
-  log.push({c:'dim',t:`Authenticated to ${r.ip} ([${r.ip}]:${p.port}) using "publickey".`});
-  const used={laptop:inUse('laptop'),[srv]:inUse(srv)};
+  const svc=svcAt(tr.final.host,tr.final.port);
+  if(!svc.ssh) return fail([{c:'err',t:'kex_exchange_identification: Connection closed by remote host'},{c:'dim',t:`(${svc.name} on ${nm(tr.final.host)}:${tr.final.port} isn't an SSH server)`}],`${svc.name} isn't an SSH server`);
+  const srv=tr.final.host,cfg=H(srv).sshd;
+  S.conn=true;S.server=srv;S.addr=addr;S.port=tr.final.port;
+  S.entry=tunneled?`${addr}:${p.port}`:'';
+  S.segs=segsFrom(tr,id);
+  S.via=[...new Set(S.segs.flatMap(h=>h.layers))].filter(x=>x!==id);
+  S.depth=Math.max(0,...S.segs.map(h=>h.layers.length-1));
+  log.push({c:'dim',t:`Authenticated to ${addr} ([${addr}]:${p.port}) using "publickey".`});
+  if(S.via.length) log.push({c:'dim',t:`(this SSH connection reaches ${nm(srv)} through session #${S.via.join(' and #')})`});
+  const taken=h=>[...inUse(h),...liveTunnels().filter(t=>t.lhost===h).map(t=>({port:t.lport,scope:t.scope}))];
+  const used={laptop:taken('laptop'),[srv]:taken(srv)};
   const gw=p.flags.has('g')||p.opts.gatewayports==='yes';
   let anyFail=false;
   for(const f of p.fw){
-    const t={type:f.type,raw:f.raw,reqBind:f.bind,lport:f.lport,dhost:f.dhost,dport:f.dport,ok:false};
+    const t={sid:id,type:f.type,raw:f.raw,reqBind:f.bind,lport:f.lport,dhost:f.dhost,dport:f.dport,ok:false};
     if(f.type==='L'){
       t.lhost='laptop';t.far=srv;
       const scope=f.bind===null?(gw?'all':'lo'):hostScope('laptop',f.bind);
@@ -644,18 +696,30 @@ function simulate(cmd){
   }
   if(anyFail&&p.opts.exitonforwardfailure==='yes'){
     log.push({c:'dim',t:'ssh exited: ExitOnForwardFailure=yes'});
-    S.conn=false;S.exited=true;S.tunnels.forEach(t=>t.ok=false);
+    S.conn=false;S.exited=true;S.why='Exited: ExitOnForwardFailure=yes';S.tunnels.forEach(t=>t.ok=false);
     return S;
   }
-  log.push({c:'dim',t:p.flags.has('N')?'(-N: no remote shell; connection stays open for forwarding)':`${S.user}@${nm(srv)}:~$`});
+  log.push({c:'ok',t:`[#${id}] connected to ${nm(srv)}, running in the background`});
   return S;
 }
 
 /* ---------- a single TCP connection attempt, as a list of stages ---------- */
-let chanNo=2;
-const liveTunnels=()=>{const S=state.session;return S&&S.conn?S.tunnels.filter(t=>t.ok):[];};
+const sess=id=>state.sessions.find(s=>s.id===id);
+const liveSessions=()=>state.sessions.filter(s=>s.conn);
+const liveTunnels=()=>liveSessions().flatMap(s=>s.tunnels.filter(t=>t.ok));
+function hopLabel(h,sid,type){
+  const outer=h.layers.filter(x=>x!==sid);
+  if(outer.length) return `The data crosses ${nm(h.a)} → ${nm(h.b)} inside SSH #${sid}, which itself travels inside SSH #${outer.join(' and #')}: ${h.layers.length} layers of encryption.`;
+  return `The data crosses ${nm(h.a)} → ${nm(h.b)} encrypted inside SSH #${sid}.${type==='R'&&h.b==='laptop'?' That\'s the opposite way to how the connection was opened.':''}`;
+}
+function transitLabel(h,n,sid){
+  const rm=h.layers.filter(x=>!n.layers.includes(x)),add=n.layers.filter(x=>!h.layers.includes(x));
+  const did=[rm.length?`removes SSH #${rm.join(' and #')}'s layer`:'',add.length?`wraps the bytes in SSH #${add.join(' and #')}`:''].filter(Boolean).join(' and ')||'passes the bytes along';
+  const left=n.layers.length===1?` Only SSH #${sid}'s encryption is left, so to ${nm(h.b)} it looks like a plain TCP connection to ${nm(n.b)}.`:'';
+  return `${nm(h.b)} ${did}, then sends SSH #${sid}'s still-encrypted bytes on to ${nm(n.b)}.${left}`;
+}
 function connect(from,addr,port){
-  const S=state.session,steps=[],out=[];
+  const steps=[],out=[];
   const D=destOf(from,addr),host=D.host,a=D.addr;
   const res=(ok,reason,final)=>({ok,reason,final,steps,out,from,host,addr:a,port});
   if(!host) return res(false,`No host in this network has the address ${a}`);
@@ -671,19 +735,21 @@ function connect(from,addr,port){
       return res(false,`Connection refused: the -${tun.type} listener on ${nm(host)} is bound to ${scopeIP(tun.scope)}:${port}, not ${a}:${port}`);
     }
     steps.push(s1);
-    const far=tun.far,ch=chanNo++,srv=nm(S.server),cfg=H(S.server).sshd;
+    const S=sess(tun.sid),far=tun.far,ch=S.chan++,srv=nm(S.server),cfg=H(S.server).sshd;
     steps.push({kind:'event',label:tun.type==='L'
-      ?`ssh on laptop accepts it and asks ${srv} to open channel ${ch} (direct-tcpip) to ${tun.dhost}:${tun.dport}.`
-      :`sshd on ${srv} accepts it and opens channel ${ch} (forwarded-tcpip) back to the laptop.`});
-    steps.push({kind:'tunnel',t:tun,label:tun.type==='L'
-      ?`The data crosses laptop → ${srv} encrypted inside the existing SSH connection.`
-      :`The data crosses ${srv} → laptop encrypted inside the SSH connection, the opposite way to how it was opened.`});
+      ?`ssh on laptop (session #${S.id}) accepts it and asks ${srv} to open channel ${ch} (direct-tcpip) to ${tun.dhost}:${tun.dport}.`
+      :`sshd on ${srv} accepts it and opens channel ${ch} (forwarded-tcpip) back to the laptop over session #${S.id}.`});
+    const hops=tun.type==='L'?S.segs:revSegs(S.segs);
+    hops.forEach((h,k)=>{
+      steps.push({kind:'tunnel',t:tun,hop:h,first:k===0,layers:h.layers.length,label:hopLabel(h,S.id,tun.type)});
+      if(k<hops.length-1) steps.push({kind:'event',label:transitLabel(h,hops[k+1],S.id)});
+    });
     if(tun.type==='L'&&(cfg.atf==='no'||cfg.atf==='remote')){
       steps.push({kind:'event',failed:true,label:`sshd on ${srv} refuses channel ${ch}: AllowTcpForwarding ${cfg.atf}.`});
       out.push(`channel ${ch}: open failed: administratively prohibited: open failed`);
       return res(false,`${srv} refused the channel (AllowTcpForwarding ${cfg.atf})`);
     }
-    const who=far===S.server?`sshd on ${srv}`:'ssh on laptop';
+    const who=far===S.server?`sshd on ${srv}`:`ssh on laptop (session #${S.id})`;
     const r=resolve(tun.dhost,far);
     if(r.err){
       steps.push({kind:'event',failed:true,label:`${who} decrypts the data but can't resolve "${tun.dhost}".`});
@@ -728,14 +794,24 @@ function bd(id,to){const b=box(id),dx=to.x-b.x,dy=to.y-b.y;if(!dx&&!dy)return {x
 const r1=v=>Math.round(v*10)/10;
 const poly=pts=>pts.map((p,i)=>(i?'L':'M')+r1(p.x)+' '+r1(p.y)).join(' ');
 function loopD(id){const b=box(id),t=b.y-b.hh;return `M${b.x-26} ${t} C ${b.x-50} ${t-64}, ${b.x+50} ${t-64}, ${b.x+26} ${t}`;}
-// The SSH connection runs laptop → shared network → server.
-function tube(){const S=state.session,c=ctr(S.net);return {a:bd('laptop',c),c,b:bd(S.server,c)};}
-// Listener circle: on the box edge where the SSH connection leaves; pulled inside the box when bound to 127.0.0.1.
+// One hop: host a → network → host b, edge to edge. Straight across when they share no network.
+function hopPts(h){
+  if(h.net&&N(h.net)&&onNet(h.a,h.net)&&onNet(h.b,h.net)){const c=ctr(h.net);return [bd(h.a,c),c,bd(h.b,c)];}
+  return [bd(h.a,ctr(h.b)),bd(h.b,ctr(h.a))];
+}
+// A session's path from the laptop to its server, through every hop its SSH connection takes.
+const sessPts=id=>sess(id).segs.flatMap(hopPts);
+const sessEnd=(id,host)=>{const p=sessPts(id);return host==='laptop'?p[0]:p[p.length-1];};
+// Listener circle: on the box edge where the session leaves; nested sessions sit beside their outer one;
+// pulled inside the box when bound to 127.0.0.1.
 function listenPt(t){
-  const tb=tube(),e=t.lhost==='laptop'?tb.a:tb.b;
-  if(t.scope!=='lo') return e;
-  const C=ctr(t.lhost),dx=C.x-e.x,dy=C.y-e.y,d=Math.hypot(dx,dy)||1;
-  return {x:e.x+dx/d*12,y:e.y+dy/d*12};
+  const S=sess(t.sid),p=sessPts(t.sid),start=t.lhost==='laptop';
+  const e=start?p[0]:p[p.length-1],nx=start?p[1]:p[p.length-2];
+  let x=e.x,y=e.y;
+  if(S.depth&&nx){const dx=nx.x-e.x,dy=nx.y-e.y,d=Math.hypot(dx,dy)||1;x+=-dy/d*S.depth*16;y+=dx/d*S.depth*16;}
+  if(t.scope!=='lo') return {x,y};
+  const C=ctr(t.lhost),dx=C.x-x,dy=C.y-y,d=Math.hypot(dx,dy)||1;
+  return {x:x+dx/d*12,y:y+dy/d*12};
 }
 function stepD(s){
   if(s.kind==='in'){
@@ -745,11 +821,11 @@ function stepD(s){
     return poly([bd(s.from,ctr(s.lhost)),Lp]);
   }
   if(s.kind==='tunnel'){
-    const tb=tube(),t=s.t,near=t.lhost==='laptop'?tb.a:tb.b,far=t.lhost==='laptop'?tb.b:tb.a;
-    return poly([listenPt(t),near,tb.c,far]);
+    const pts=hopPts(s.hop);
+    return poly(s.first?[listenPt(s.t),...pts]:pts);
   }
   if(s.kind==='out'){
-    const tb=tube(),t=s.t,start=t.far==='laptop'?tb.a:tb.b;
+    const t=s.t,start=sessEnd(t.sid,t.far);
     if(s.dest===t.far) return `${poly([start,ctr(t.far)])} ${loopD(t.far)}`;
     if(s.net&&onNet(t.far,s.net)){const c=ctr(s.net);return poly([start,bd(t.far,c),c,bd(s.dest,c)]);}
     return poly([start,bd(s.dest,ctr(t.far))]);
@@ -783,7 +859,7 @@ function renderDiagram(){
   g.textContent='';
   svg.setAttribute('viewBox',fitView());
   svg.setAttribute('aria-label',`Network diagram: ${T.hosts.length} hosts on ${T.networks.length} networks. Drag a host or network to move it.`);
-  const S=state.session,ok=liveTunnels();
+  const live=liveSessions().slice().sort((a,b)=>a.depth-b.depth),ok=liveTunnels();
   // links
   T.hosts.forEach(h=>h.ifaces.forEach(i=>{
     if(!N(i.net)) return;
@@ -791,11 +867,12 @@ function renderDiagram(){
     el('line',{x1:r1(a.x),y1:r1(a.y),x2:r1(b.x),y2:r1(b.y),class:'link'+(i.ip?'':' nat')},g);
     if(!i.ip) tx(g,r1((a.x+b.x)/2+6),r1((a.y+b.y)/2),'NAT','natlab','start');
   }));
-  // ssh connection
-  if(S&&S.conn){
-    const tb=tube(),d=poly([tb.a,tb.c,tb.b]);
-    el('path',{d,class:'tube-o'},g);el('path',{d,class:'tube-i'},g);
-  }
+  // ssh connections, outermost first; a session inside another is drawn narrower on top of it
+  live.forEach(S=>{
+    if(!S.segs.length) return;
+    const d=poly(sessPts(S.id));
+    el('path',{d,class:'tube-o',style:`stroke-width:${Math.max(8,24-S.depth*8)}px`},g);el('path',{d,class:'tube-i'},g);
+  });
   ok.forEach(t=>{
     const r=resolve(t.dhost,t.far);
     if(r.host){
@@ -810,7 +887,14 @@ function renderDiagram(){
     el('rect',{x:r1(n.x-w),y:n.y-NH,width:r1(w*2),height:NH*2,rx:NH},ng);
     tx(ng,n.x,n.y-3,n.name,'nn');tx(ng,n.x,n.y+11,n.cidr,'nc');
   });
-  if(S&&S.conn){const c=ctr(S.net);tx(g,c.x,c.y+NH+15,`SSH laptop → ${nm(S.server)}:${H(S.server).sshd.port}`,'tube-lab');}
+  // one label per session, under the network of its last hop
+  const labs={};
+  live.slice().sort((a,b)=>a.id-b.id).forEach(S=>{
+    const last=S.segs[S.segs.length-1];if(!last) return;
+    const key=last.net||last.a+'>'+last.b,k=labs[key]=(labs[key]||0)+1;
+    const p=hopPts(last),c=p.length===3?p[1]:{x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2};
+    tx(g,r1(c.x),r1(c.y+NH+15+(k-1)*14),`SSH #${S.id} → ${nm(S.server)}:${S.port}${S.via.length?` (inside #${S.via.join(', #')})`:''}`,'tube-lab');
+  });
   // hosts
   T.hosts.forEach(h=>{
     const hg=el('g',{class:'node host'+(h.id==='laptop'?' me':'')+(state.sel===h.id?' sel':''),'data-node':h.id,tabindex:0,role:'button','aria-label':`Host ${h.name}`},g);
@@ -823,20 +907,20 @@ function renderDiagram(){
   });
   // listeners
   const groups={},row={};
-  ok.forEach(t=>{const lo=t.scope==='lo',k=t.lhost+'|'+lo;const L=(groups[k]=groups[k]||{type:t.type,t,lo,h:t.lhost,ports:[],asked:[]});L.ports.push(t.lport);if(t.asked)L.asked.push(t.asked);});
+  ok.forEach(t=>{const lo=t.scope==='lo',k=t.sid+'|'+t.lhost+'|'+lo;const L=(groups[k]=groups[k]||{type:t.type,t,lo,h:t.lhost,ports:[],asked:[]});L.ports.push(t.lport);if(t.asked)L.asked.push(t.asked);});
   Object.values(groups).forEach(L=>{
     const p=listenPt(L.t);
     el('circle',{cx:r1(p.x),cy:r1(p.y),r:7,class:'listen '+L.type},g);
     const n=row[L.h]=(row[L.h]||0)+1;
     const asked=L.asked.length?` · asked for ${[...new Set(L.asked)].join(', ')}`:'';
-    tx(g,r1(p.x+12),r1(p.y-10-(n-1)*14),L.ports.map(x=>':'+x).join(' ')+(L.lo?' on 127.0.0.1':'')+asked,'lport '+L.type,'start');
+    tx(g,r1(p.x+12),r1(p.y-10-(n-1)*14),`#${L.t.sid} `+L.ports.map(x=>':'+x).join(' ')+(L.lo?' on 127.0.0.1':'')+asked,'lport '+L.type,'start');
   });
   // badges under each host
   const per={};const add=(h,b)=>(per[h]=per[h]||[]).push(b);
-  if(S&&S.conn) S.tunnels.forEach(t=>{
-    if(t.ok){add(t.lhost,{cls:t.type,text:`-${t.type}  ${scopeIP(t.scope)}:${t.lport}`});add(t.far,{cls:t.type+' exit',text:`-${t.type}  ↦ ${t.dhost}:${t.dport}`});}
-    else add(t.lhost,{cls:'fail',text:`-${t.type}  ✕ :${t.lport}`});
-  });
+  liveSessions().forEach(S=>S.tunnels.forEach(t=>{
+    if(t.ok){add(t.lhost,{cls:t.type,text:`#${t.sid} -${t.type}  ${scopeIP(t.scope)}:${t.lport}`});add(t.far,{cls:t.type+' exit',text:`#${t.sid} -${t.type}  ↦ ${t.dhost}:${t.dport}`});}
+    else add(t.lhost,{cls:'fail',text:`#${t.sid} -${t.type}  ✕ :${t.lport}`});
+  }));
   Object.keys(per).forEach(id=>{
     const h=H(id);
     per[id].forEach((b,i)=>{
@@ -892,11 +976,12 @@ async function doStage(){
   P.busy=true;
   if(s.kind==='event') pulse();
   else{
-    const p=el('path',{d:stepD(s),class:'hop '+s.kind+(s.failed?' failed':'')},layer);
+    const lv=s.layers>1?' l'+Math.min(3,s.layers):'';
+    const p=el('path',{d:stepD(s),class:'hop '+s.kind+lv+(s.failed?' failed':'')},layer);
     if(!s.failed&&(s.kind==='in'||s.kind==='direct')) p.setAttribute('marker-end','url(#m-in)');
     if(!s.failed&&s.kind==='out') p.setAttribute('marker-end','url(#m-out)');
-    if(!P.pk){P.pk=el('g',{class:'pk'});el('circle',{r:13,class:'ring'},P.pk);el('circle',{r:7},P.pk);}
-    layer.appendChild(P.pk);P.pk.setAttribute('class','pk '+s.kind);
+    if(!P.pk){P.pk=el('g',{class:'pk'});el('circle',{r:23,class:'ring3'},P.pk);el('circle',{r:18,class:'ring2'},P.pk);el('circle',{r:13,class:'ring'},P.pk);el('circle',{r:7},P.pk);}
+    layer.appendChild(P.pk);P.pk.setAttribute('class','pk '+s.kind+lv);
     const len=p.getTotalLength();
     await moveAlong(p,s.failed?len*(s.stopAt||1):len,P.pk,my,s.kind);
   }
@@ -950,22 +1035,59 @@ function renderLog(){
 }
 
 /* ---------- state ---------- */
-const state={mode:'sandbox',ch:0,session:null,sel:null,cfgHost:null,sandbox:null};
-function runCommand(cmd,quiet){
-  cmd=cmd.trim();
-  resetPlayer();chanNo=2;
-  state.session=cmd?simulate(cmd):null;
-  if(state.session&&state.session.conn) state.cfgHost=state.session.server;
-  if(state.session&&!quiet) state.session.log.forEach(pushLog);
-  renderLog();renderAll();pickDefaultTarget();
+// Every ssh run from the laptop stays open in the background as a numbered session.
+const state={mode:'sandbox',ch:0,sessions:[],sel:null,cfgHost:null,sandbox:null};
+let nextSid=1,hinted=false;
+function openSession(cmd){
+  const S=simulate(cmd,nextSid);
+  S.log.forEach(pushLog);
+  if(S.conn){
+    state.sessions.push(S);nextSid++;state.cfgHost=S.server;
+    if(!hinted){pushLog({c:'dim',t:'(each session keeps running. Run another ssh to add one; jobs lists them; kill %N closes one)'});hinted=true;}
+  }
+  return S;
 }
-// The network changed: rebuild the same ssh session against it without new terminal output.
-function resim(){
-  resetPlayer();chanNo=2;
-  if(state.session&&state.session.cmd) state.session=simulate(state.session.cmd);
-  renderAll();
+function closeAll(){state.sessions=[];nextSid=1;}
+// Rebuild every open session in order against the current network and sshd_config.
+// A session that can no longer connect stays listed as disconnected, and comes back when the network allows it.
+function replay(){
+  const old=state.sessions;state.sessions=[];
+  old.forEach(o=>{const S=simulate(o.cmd,o.id);if(!S.conn)S.via=o.via;state.sessions.push(S);});
 }
-function renderAll(){renderDiagram();renderTargets();renderForwards();renderCfg();}
+// Closing a session also ends every session whose SSH connection ran through it.
+function closeSession(id){
+  const gone=new Set([id]);
+  state.sessions.forEach(s=>{if(s.via.some(v=>gone.has(v)))gone.add(s.id);});
+  pushLog({c:'dim',t:`[#${id}] closed`});
+  state.sessions.filter(s=>gone.has(s.id)&&s.id!==id).forEach(s=>pushLog({c:'err',t:`Connection to ${s.addr||'host'} closed by remote host. [#${s.id} ran through #${id}]`}));
+  state.sessions=state.sessions.filter(s=>!gone.has(s.id));
+  if(!state.sessions.length) nextSid=1;
+  replay();
+}
+function runCommand(cmd){
+  cmd=cmd.trim();if(!cmd) return;
+  resetPlayer();
+  const w=cmd.split(/\s+/);
+  if(w[0]==='clear'){logLines=[];}
+  else if(w[0]==='jobs'){
+    pushLog({c:'cmd',t:cmd});
+    if(!state.sessions.length) pushLog({c:'dim',t:'(no SSH sessions)'});
+    state.sessions.forEach(s=>pushLog({c:s.conn?'dim':'err',t:`[#${s.id}]  ${s.conn?'Running     ':'Disconnected'}  ${s.cmd}`}));
+  }
+  else if(w[0]==='kill'){
+    pushLog({c:'cmd',t:cmd});
+    const m=/^%(\d+)$/.exec(w[1]||'');
+    if(!m) pushLog({c:'err',t:`bash: kill: ${w[1]||''}: use kill %N, where N is a session number from jobs`});
+    else if(!sess(+m[1])) pushLog({c:'err',t:`bash: kill: %${m[1]}: no such job`});
+    else closeSession(+m[1]);
+  }
+  else if(w[0]==='exit'||w[0]==='logout'){pushLog({c:'cmd',t:cmd});pushLog({c:'dim',t:'(the laptop terminal stays open. Close SSH sessions with kill %N or the Close buttons.)'});}
+  else {const S=openSession(cmd);renderLog();renderAll();if(S.conn)pickDefaultTarget(S);return;}
+  renderLog();renderAll();
+}
+// The network changed: rebuild the open sessions against it without new terminal output.
+function resim(){resetPlayer();replay();renderAll();}
+function renderAll(){renderDiagram();renderTargets();renderSessions();renderCfg();}
 
 // What a sender would find at addr:port, for the "Sent to" labels. 127.0.0.1 is read from the sender's side.
 function targetLabel(from,v){
@@ -1017,28 +1139,35 @@ const canUse=(h,t)=>h===t.lhost||H(t.lhost).ifaces.some(i=>i.ip&&onNet(h,i.net)&
 // A listener bound beyond loopback is meant for other hosts, so send from an outside neighbour.
 function defaultSender(t){
   const others=T.hosts.map(h=>h.id).filter(h=>h!==t.lhost);
-  const order=[...others.filter(h=>h!=='laptop'&&h!==state.session.server),...others];
+  const order=[...others.filter(h=>h!=='laptop'&&h!==sess(t.sid).server),...others];
   if(t.asked) return order.find(h=>H(t.lhost).ifaces.some(i=>i.ip&&onNet(h,i.net)))||t.lhost;
   if(t.scope==='lo') return t.lhost;
   return order.find(h=>canUse(h,t))||t.lhost;
 }
-function pickDefaultTarget(){
-  const t=liveTunnels()[0];
+// Point the packet player at the newest session's first forward (or the first forward anywhere).
+function pickDefaultTarget(S){
+  const t=(S&&S.tunnels.find(x=>x.ok))||liveTunnels()[0];
   if(t){const f=defaultSender(t);setSender(f);setTarget(`${defaultAddr(f,t)}:${t.lport}`);}
 }
-function renderForwards(){
-  const box=$('#listeners'),S=state.session;
-  if(!S||!S.conn||!S.tunnels.length){
-    box.innerHTML=`<p class="empty">${S&&S.exited?'ssh exited, so no forwards are open.':S&&!S.conn?'No SSH connection.':'No -L or -R forwards yet. Run an ssh command in the terminal.'}</p>`;
+function renderSessions(){
+  const box=$('#sessions');
+  $('#close-all').hidden=state.sessions.length<2;
+  if(!state.sessions.length){
+    box.innerHTML='<p class="empty">No SSH sessions yet. Run ssh in the terminal. Each session keeps running, so you can open another one through an earlier tunnel.</p>';
     return;
   }
-  box.innerHTML=S.tunnels.map(t=>{
-    if(!t.ok) return `<div class="lst fail"><span class="head">-${t.type} ${esc(t.raw)}</span><span class="why">${esc(t.why)}</span></div>`;
-    const who=T.hosts.map(h=>h.id).filter(h=>canUse(h,t));
-    return `<div class="lst ${t.type}"><span class="head">-${t.type} ${esc(t.raw)}</span>
-      <span class="note">listens on ${esc(nm(t.lhost))} ${scopeIP(t.scope)}:${t.lport} · ${esc(t.dhost)} is interpreted on ${esc(nm(t.far))}</span>
-      ${t.note?`<span class="note">${esc(t.note)}</span>`:''}
-      <div class="chips"><small>send a packet from:</small>${who.map(h=>`<button class="chip" type="button" data-from="${esc(h)}" data-to="${esc(defaultAddr(h,t))}:${t.lport}">${esc(nm(h))}</button>`).join('')}</div></div>`;
+  box.innerHTML=state.sessions.map(S=>{
+    const head=`<div class="shead"><span class="sid">#${S.id}</span><span>${S.conn?`laptop → ${esc(nm(S.server))}:${S.port}`:'disconnected'}</span>${S.via.length?`<span class="via">via ${esc(S.entry)}, through #${S.via.join(', #')}</span>`:''}<button class="tool sm" type="button" data-close="${S.id}" aria-label="Close session ${S.id}">Close</button></div><code class="scmd">${esc(S.cmd)}</code>`;
+    if(!S.conn) return `<div class="sess off">${head}<span class="why">${esc(S.why||'Not connected')}</span></div>`;
+    const fw=S.tunnels.map(t=>{
+      if(!t.ok) return `<div class="lst fail"><span class="head">-${t.type} ${esc(t.raw)}</span><span class="why">${esc(t.why)}</span></div>`;
+      const who=T.hosts.map(h=>h.id).filter(h=>canUse(h,t));
+      return `<div class="lst ${t.type}"><span class="head">-${t.type} ${esc(t.raw)}</span>
+        <span class="note">listens on ${esc(nm(t.lhost))} ${scopeIP(t.scope)}:${t.lport} · ${esc(t.dhost)} is interpreted on ${esc(nm(t.far))}</span>
+        ${t.note?`<span class="note">${esc(t.note)}</span>`:''}
+        <div class="chips"><small>send a packet from:</small>${who.map(h=>`<button class="chip" type="button" data-from="${esc(h)}" data-to="${esc(defaultAddr(h,t))}:${t.lport}">${esc(nm(h))}</button>`).join('')}</div></div>`;
+    }).join('')||'<p class="empty">No -L or -R forwards in this session.</p>';
+    return `<div class="sess">${head}${fw}</div>`;
   }).join('');
 }
 
@@ -1060,8 +1189,10 @@ function cfgChanged(){
   h.sshd.gp=$('#gp').value;h.sshd.atf=$('#atf').value;
   saveSandbox();
   pushLog({c:'dim',t:`# ${h.name}: GatewayPorts ${h.sshd.gp}, AllowTcpForwarding ${h.sshd.atf} (sshd reloaded)`});
-  if(state.session&&state.session.cmd&&state.session.conn&&state.session.server===h.id){pushLog({c:'dim',t:'# reconnecting with the same command'});runCommand(state.session.cmd);}
-  else {renderLog();resim();}
+  if(state.sessions.length) pushLog({c:'dim',t:'# reconnecting the open sessions with the same commands'});
+  replay();
+  state.sessions.filter(s=>!s.conn).forEach(s=>pushLog({c:'err',t:`[#${s.id}] can't reconnect: ${s.why}`}));
+  renderLog();resetPlayer();renderAll();
 }
 
 /* ---------- saving, export, import ---------- */
@@ -1124,7 +1255,7 @@ function replaceSandbox(topo,what){
   saveSandbox();
   pushLog({c:'dim',t:`# ${what}: ${topo.hosts.length} hosts, ${topo.networks.length} networks`});
   $('#cmd').value='';
-  runCommand('');renderInspector();
+  closeAll();resetPlayer();renderLog();renderAll();renderInspector();
 }
 const dlg=$('#io-dlg');let ioMode='export';
 function openIO(mode){
@@ -1409,8 +1540,25 @@ const CH=[
   {layout:'twohop',t:'R',title:'CI calls home',goal:'The CI server must reach your dev app at <code>172.16.0.1:9000</code> on gitbox. Nobody on the Internet side may use gitbox port 9000. You may edit gitbox\'s sshd_config.',
    tests:[{from:'ci',host:'gitbox',port:9000,e:{host:'laptop',port:3000}},{from:'laptop',host:'gitbox',port:9000,e:'fail'}],
    hint:'Bind the -R listener to gitbox\'s build-network address only. sshd has to allow a client-chosen bind address.',
-   sol:'Set gitbox\'s GatewayPorts to <code>clientspecified</code>, then run <code>ssh alex@203.0.113.20 -R 172.16.0.1:9000:127.0.0.1:3000</code>.',solCmd:'ssh alex@203.0.113.20 -R 172.16.0.1:9000:127.0.0.1:3000',solCfg:{gitbox:{gp:'clientspecified'}}}
+   sol:'Set gitbox\'s GatewayPorts to <code>clientspecified</code>, then run <code>ssh alex@203.0.113.20 -R 172.16.0.1:9000:127.0.0.1:3000</code>.',solCmd:'ssh alex@203.0.113.20 -R 172.16.0.1:9000:127.0.0.1:3000',solCfg:{gitbox:{gp:'clientspecified'}}},
+  {layout:'chain',t:'C',title:'Two hops deep',goal:'From the laptop, <code>http://127.0.0.1:8090</code> should open the lab app (10.9.0.5:80). Only the lab gateway can reach the lab network, and only the bastion can reach the lab gateway.',
+   tests:[{from:'laptop',host:'laptop',port:8090,e:{host:'labapp',port:80}}],
+   hint:'One ssh can\'t do it. First forward a laptop port to the lab gateway\'s SSH port (10.0.0.40:22) through the bastion. Then run a second ssh to that laptop port.',
+   sol:'Run <code>ssh alex@203.0.113.10 -L 2222:10.0.0.40:22</code>, then <code>ssh -p 2222 alex@127.0.0.1 -L 8090:10.9.0.5:80</code>. The second session\'s SSH traffic travels inside the first.',
+   solCmd:['ssh alex@203.0.113.10 -L 2222:10.0.0.40:22','ssh -p 2222 alex@127.0.0.1 -L 8090:10.9.0.5:80']},
+  {layout:'chain',t:'C',title:'Call back through two hops',goal:'The lab app server (10.9.0.5) must reach your dev app at <code>http://10.9.0.1:9000</code> on the lab gateway. You may edit the lab gateway\'s sshd_config.',
+   tests:[{from:'labapp',host:'labgw',port:9000,e:{host:'laptop',port:3000}}],
+   hint:'Reach the lab gateway\'s sshd through a first tunnel, then open the -R from a second session. Which server\'s GatewayPorts decides where that listener binds?',
+   sol:'Set labgw\'s GatewayPorts to <code>clientspecified</code>. Run <code>ssh alex@203.0.113.10 -L 2222:10.0.0.40:22</code>, then <code>ssh -p 2222 alex@127.0.0.1 -R 10.9.0.1:9000:127.0.0.1:3000</code>.',
+   solCmd:['ssh alex@203.0.113.10 -L 2222:10.0.0.40:22','ssh -p 2222 alex@127.0.0.1 -R 10.9.0.1:9000:127.0.0.1:3000'],solCfg:{labgw:{gp:'clientspecified'}}},
+  {layout:'chain',t:'C',title:'Pull the rug',goal:'Two sessions are open, and session #2 runs through session #1. Keep the lab app reachable at <code>127.0.0.1:8090</code> while closing as many sessions as you can.',
+   cmd:['ssh alex@203.0.113.10 -L 2222:10.0.0.40:22 -L 5432:10.0.0.30:5432','ssh -p 2222 alex@127.0.0.1 -L 8090:10.9.0.5:80'],
+   tests:[{from:'laptop',host:'laptop',port:8090,e:{host:'labapp',port:80}},{from:'laptop',host:'laptop',port:5432,e:'fail'}],
+   hint:'Try kill %1 and watch what happens to #2. Can you get the 8090 forward back without the database forward?',
+   sol:'Closing #1 also ends #2, because #2\'s SSH connection ran through it. Close both, then run <code>ssh alex@203.0.113.10 -L 2222:10.0.0.40:22</code> and <code>ssh -p 2222 alex@127.0.0.1 -L 8090:10.9.0.5:80</code>.',
+   solCmd:['ssh alex@203.0.113.10 -L 2222:10.0.0.40:22','ssh -p 2222 alex@127.0.0.1 -L 8090:10.9.0.5:80']}
 ];
+const cmdList=c=>c?(Array.isArray(c)?c:[c]):[];
 let solved=new Set();
 try{solved=new Set(JSON.parse(localStorage.getItem('sshlab-solved')||'[]'));}catch(e){}
 function saveSolved(){try{localStorage.setItem('sshlab-solved',JSON.stringify([...solved]));}catch(e){}}
@@ -1418,7 +1566,7 @@ function renderChList(){
   let last=null;
   $('#chlist').innerHTML=CH.map((c,i)=>{
     const head=c.layout!==last?`<li class="grp">${esc(LAYOUTS[c.layout].name)}</li>`:'';last=c.layout;
-    return `${head}<li><button type="button" data-i="${i}" aria-current="${i===state.ch}"><span class="n">${i+1}</span><span>${c.title}</span><span class="tg ${c.t}">${c.t==='S'?'config':'-'+c.t}</span><span class="dot ${solved.has(c.title)?'done':''}"></span></button></li>`;
+    return `${head}<li><button type="button" data-i="${i}" aria-current="${i===state.ch}"><span class="n">${i+1}</span><span>${c.title}</span><span class="tg ${c.t}">${c.t==='S'?'config':c.t==='C'?'chain':'-'+c.t}</span><span class="dot ${solved.has(c.title)?'done':''}"></span></button></li>`;
   }).join('');
   $('#solved-count').textContent=` ${solved.size}/${CH.length}`;
 }
@@ -1436,7 +1584,9 @@ function openChallenge(i){
   $('#ch-hint').open=false;$('#ch-sol').open=false;
   $('#ch-results').textContent='';$('#ch-banner').hidden=true;
   renderChList();
-  runCommand(c.cmd||'');
+  closeAll();resetPlayer();
+  cmdList(c.cmd).forEach(openSession);
+  renderLog();renderAll();pickDefaultTarget();
 }
 let lastChecks=[];
 const testAddr=t=>t.addr||natAddr(t.from,t.host);
@@ -1480,11 +1630,12 @@ function setMode(m){
   $('#lock-note').hidden=m==='sandbox';
   $('#confirm').hidden=true;
   if(m==='challenges') openChallenge(state.ch);
-  else {T=state.sandbox;state.sel=null;$('#cmd').value='';runCommand('');renderInspector();}
+  else {T=state.sandbox;state.sel=null;$('#cmd').value='';closeAll();resetPlayer();renderLog();renderAll();renderInspector();}
 }
 $('#tab-sandbox').addEventListener('click',()=>{if(state.mode!=='sandbox')setMode('sandbox');});
 $('#tab-challenges').addEventListener('click',()=>{if(state.mode!=='challenges')setMode('challenges');});
-$('#cmd-form').addEventListener('submit',e=>{e.preventDefault();runCommand($('#cmd').value);});
+$('#cmd-form').addEventListener('submit',e=>{e.preventDefault();const v=$('#cmd').value;$('#cmd').value='';runCommand(v);});
+$('#close-all').addEventListener('click',()=>{pushLog({c:'dim',t:'# closed all SSH sessions'});closeAll();resetPlayer();renderLog();renderAll();});
 $('#clear-log').addEventListener('click',()=>{logLines=[];renderLog();});
 $('#gp').addEventListener('change',cfgChanged);
 $('#atf').addEventListener('change',cfgChanged);
@@ -1494,7 +1645,9 @@ $('#p-step').addEventListener('click',stepOnce);
 $('#p-reset').addEventListener('click',resetPlayer);
 $('#t-from').addEventListener('change',()=>{renderTargets();resetPlayer();});
 $('#t-to').addEventListener('change',resetPlayer);
-$('#listeners').addEventListener('click',e=>{
+$('#sessions').addEventListener('click',e=>{
+  const x=e.target.closest('[data-close]');
+  if(x){resetPlayer();closeSession(+x.dataset.close);renderLog();renderAll();return;}
   const b=e.target.closest('.chip');if(!b) return;
   setSender(b.dataset.from);setTarget(b.dataset.to);
   playAll(newTrace());
@@ -1507,19 +1660,24 @@ ex.addEventListener('change',()=>{
   const b=T.hosts.find(h=>h.name==='bastion'&&h.sshd);
   if(!b) pushLog({c:'dim',t:'# these examples are written for the Classic layout. Load it from "Start from…" first.'});
   else if(cfg){Object.assign(b.sshd,cfg);saveSandbox();pushLog({c:'dim',t:`# bastion: GatewayPorts ${cfg.gp}, AllowTcpForwarding ${cfg.atf} (sshd reloaded)`});}
-  $('#cmd').value=c;runCommand(c);
+  if(state.sessions.length) pushLog({c:'dim',t:'# closed the open sessions to start the example fresh'});
+  closeAll();runCommand(c);
 });
 $('#chlist').addEventListener('click',e=>{const b=e.target.closest('button');if(b)openChallenge(+b.dataset.i);});
 $('#ch-check').addEventListener('click',()=>{
+  // A command still sitting in the terminal is run first, as if Enter had been pressed.
   const v=$('#cmd').value.trim();
-  if(v) runCommand(v,true); else if(state.session) runCommand(state.session.cmd,true);
+  if(v){$('#cmd').value='';runCommand(v);}
   check();
 });
 $('#ch-reset').addEventListener('click',()=>openChallenge(state.ch));
 $('#ch-apply').addEventListener('click',()=>{
   const c=CH[state.ch];
   if(c.solCfg) applyCfg(c.solCfg);
-  $('#cmd').value=c.solCmd;runCommand(c.solCmd);
+  pushLog({c:'dim',t:'# applying the solution: closing the open sessions first'});
+  closeAll();resetPlayer();$('#cmd').value='';
+  cmdList(c.solCmd).forEach(openSession);
+  renderLog();renderAll();pickDefaultTarget(state.sessions[state.sessions.length-1]);
 });
 $('#ch-results').addEventListener('click',e=>{const li=e.target.closest('li');if(li)replayCheck(+li.dataset.k);});
 $('#ch-results').addEventListener('keydown',e=>{if(e.key==='Enter'){const li=e.target.closest('li');if(li)replayCheck(+li.dataset.k);}});

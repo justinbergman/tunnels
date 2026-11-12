@@ -26,7 +26,15 @@ ssh alex@203.0.113.10 -R 8000:127.0.0.1:3000
 - The laptop is the fixed student station, and the terminal always runs on it. Any other host can run `sshd` with its own `GatewayPorts` and `AllowTcpForwarding`.
 - Hosts reach each other only when they share a network. An interface with no IP is outbound only (NAT).
 - Sandbox maps can be exported and imported as JSON.
-- Twelve Challenges on two fixed layouts: Classic (the original nine) and Two jump hosts (three more).
+- Several SSH sessions can be open at once. Each `ssh` keeps running in the background; `jobs` lists them and `kill %N` closes one. A later session can run through an earlier tunnel, so tunnels can be chained, for example:
+
+  ```
+  ssh alex@203.0.113.10 -L 2222:10.0.0.40:22
+  ssh -p 2222 alex@127.0.0.1 -L 8090:10.9.0.5:80
+  ```
+
+  The diagram draws the inner session inside the outer one, and the step-through shows where each layer of encryption is added and removed. Closing a session also closes every session that ran through it.
+- Fifteen Challenges on three fixed layouts: Classic (the original nine), Two jump hosts (three more), and Deep lab (three chaining challenges).
 
 ## Hosting with GitHub Pages
 
