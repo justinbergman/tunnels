@@ -49,6 +49,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--f-display);font-siz
 .top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
 h1{margin:0;font-weight:700;font-size:30px;letter-spacing:-.01em;line-height:1.05;text-wrap:balance}
 .tag{margin:4px 0 0;font-family:var(--f-mono);font-size:12.5px;color:var(--muted)}
+.adv{color:var(--L)}
 .tabs{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:3px;gap:3px}
 .tabs button{font:600 14px var(--f-display);letter-spacing:.02em;border:0;background:transparent;color:var(--muted);padding:7px 14px;border-radius:5px;cursor:pointer}
 .tabs button[aria-selected="true"]{background:var(--ink);color:var(--bg)}
@@ -228,7 +229,7 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
   <header class="top">
     <div>
       <h1>SSH Tunnel Simulator</h1>
-      <p class="tag">ssh -L / ssh -R · local and remote port forwarding</p>
+      <p class="tag">ssh -L / ssh -R · local and remote port forwarding · <a class="adv" href="https://justinbergman.github.io/tunnels/advanced/">Advanced lab: build your own network</a></p>
     </div>
     <div class="tabs" role="tablist" aria-label="Mode">
       <button id="tab-sandbox" role="tab" aria-selected="true">Sandbox</button>
