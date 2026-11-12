@@ -379,11 +379,26 @@ function addrOf(to,iface){
   if(to==='bastion') return iface==='internal'?'10.0.0.1':'203.0.113.10';
   return IP[to];
 }
-function scopeAllows(scope,from,host,iface){
-  if(from===host) return true;
-  if(scope==='all') return true;
-  if(scope==='lo') return false;
-  return scope===iface;
+// A listener bound to `scope` accepts a connection that arrived on `iface` (the address it was sent to).
+// Loopback is not special-cased: a 127.0.0.1-only listener refuses a connection to the host's own LAN IP.
+function scopeAllows(scope,iface){
+  return scope==='all'||scope===iface;
+}
+// Where a packet sent from `from` to `addr` lands: the host, the interface it arrives on, and whether there's a route.
+// 127.0.0.1 always means the sender itself.
+function destOf(from,addr){
+  if(addr==='127.0.0.1'||addr==='localhost') return {host:from,iface:'lo',addr:'127.0.0.1',route:true};
+  const m=IPMAP[addr];
+  if(!m) return {host:null,addr,route:false};
+  const [host,iface]=m;
+  if(host===from) return {host,iface,addr,route:true};
+  return {host,iface,addr,route:reachFrom(from,{host,ipIface:iface})!==null};
+}
+// The address a sender would naturally use for `host`: loopback for itself, otherwise the interface facing it.
+function natAddr(from,host){
+  if(from===host) return '127.0.0.1';
+  const i=netReach(from,host);
+  return i?addrOf(host,i):IP[host];
 }
 function resolve(name,resolver){
   const n=name.toLowerCase();
@@ -543,18 +558,22 @@ function simulate(cmd,cfg){
 
 /* ---------- a single TCP connection attempt, as a list of stages ---------- */
 let chanNo=2;
-function connect(from,host,port){
+// `addr` is the IP the sender types. 127.0.0.1 means the sender's own loopback.
+function connect(from,addr,port){
   const S=state.session,cfg=state.cfg,steps=[],out=[];
-  const res=(ok,reason,final)=>({ok,reason,final,steps,out,from,host,port});
-  const tun=S&&S.conn?S.tunnels.find(t=>t.ok&&t.lhost===host&&t.lport===port):null;
-  const iface=netReach(from,host);
+  const D=destOf(from,addr),host=D.host,a=D.addr;
+  const res=(ok,reason,final)=>({ok,reason,final,steps,out,from,host,addr:a,port});
+  if(!host) return res(false,`No host in this network has the address ${a}`);
+  const here=S&&S.conn?S.tunnels.filter(t=>t.ok&&t.lhost===host&&t.lport===port):[];
+  // Two listeners can share a port on different addresses; pick the one bound to the address used.
+  const tun=here.find(t=>scopeAllows(t.scope,D.iface))||here[0];
+  const where=from===host&&a!=='127.0.0.1'?` (${from}'s own ${D.iface==='lan'?'LAN':D.iface} address, not loopback)`:'';
   if(tun){
-    const a=from===host?(tun.scope==='lo'||tun.scope==='all'?'127.0.0.1':BINDIP[tun.scope]):(iface?addrOf(host,iface):IP[host]);
-    const s1={kind:'in',from,lhost:host,cx:listenX(tun),label:`${from} opens a TCP connection to ${a}:${port}, the tunnel's listening port. Plaintext.`};
-    if(!iface){s1.failed=true;s1.stopAt=.5;steps.push(s1);return res(false,`${host} isn't reachable from ${from}: no direct route`);}
-    if(!scopeAllows(tun.scope,from,host,iface)){
+    const s1={kind:'in',from,lhost:host,cx:listenX(tun),label:`${from} opens a TCP connection to ${a}:${port}${where}, the tunnel's listening port. Plaintext.`};
+    if(!D.route){s1.failed=true;s1.stopAt=.5;steps.push(s1);return res(false,`${a} isn't reachable from ${from}: no direct route`);}
+    if(!scopeAllows(tun.scope,D.iface)){
       s1.failed=true;s1.stopAt=.88;steps.push(s1);
-      return res(false,`Connection refused: the -${tun.type} listener on ${host} is bound to ${BINDIP[tun.scope]}:${port}`);
+      return res(false,`Connection refused: the -${tun.type} listener on ${host} is bound to ${BINDIP[tun.scope]}:${port}, not ${a}:${port}`);
     }
     steps.push(s1);
     const far=tun.far,ch=chanNo++;
@@ -594,11 +613,11 @@ function connect(from,host,port){
     return res(true,`Reached ${svc.name} on ${r.host}:${tun.dport} through the tunnel`,{host:r.host,port:tun.dport});
   }
   const svc=SERVICES[host][port];
-  const d={kind:'direct',from,host,label:`${from} connects straight to ${from===host?'127.0.0.1':iface?addrOf(host,iface):IP[host]}:${port}. No tunnel involved.`};
-  if(!iface){d.failed=true;d.stopAt=.5;steps.push(d);return res(false,`${host} isn't reachable from ${from}: no direct route`);}
-  if(!svc||(svc.bind==='lo'&&iface!=='lo')){
+  const d={kind:'direct',from,host,label:`${from} connects straight to ${a}:${port}${where}. No tunnel involved.`};
+  if(!D.route){d.failed=true;d.stopAt=.5;steps.push(d);return res(false,`${a} isn't reachable from ${from}: no direct route`);}
+  if(!svc||(svc.bind==='lo'&&D.iface!=='lo')){
     d.failed=true;d.stopAt=.9;steps.push(d);
-    return res(false,svc?`Connection refused: ${svc.name} on ${host} only listens on 127.0.0.1`:`Connection refused: nothing listens on ${host}:${port}`);
+    return res(false,svc?`Connection refused: ${svc.name} on ${host} only listens on 127.0.0.1`:`Connection refused: nothing listens on ${a}:${port}${from===host&&a==='127.0.0.1'?` (127.0.0.1 is ${from} itself)`:''}`);
   }
   steps.push(d);
   return res(true,`Reached ${svc.name} on ${host}:${port} directly, without the tunnel`,{host,port});
@@ -718,7 +737,8 @@ function renderSteps(){
   $('#p-count').textContent=`${P.i}/${P.tr.steps.length}`;
   $('#p-step').textContent=P.i>=P.tr.steps.length?'Step again ▸':P.i===0?'Step ▸':'Next step ▸';
 }
-function newTrace(){const [h,p]=$('#t-to').value.split(':');return connect($('#t-from').value,h,+p);}
+function splitTarget(v){const i=v.lastIndexOf(':');return [v.slice(0,i),+v.slice(i+1)];}
+function newTrace(){const [a,p]=splitTarget($('#t-to').value);return connect($('#t-from').value,a,p);}
 function loadTrace(tr){resetPlayer();P.tr=tr;renderSteps();}
 function moveAlong(path,dist,pk,token,kind){
   const place=d=>{const pt=path.getPointAtLength(d);pk.setAttribute('transform',`translate(${pt.x} ${pt.y})`);};
@@ -778,6 +798,7 @@ function finish(){
 async function playAll(tr){
   loadTrace(tr);
   const my=animToken;
+  if(!P.tr.steps.length){finish();return;}
   while(P.i<P.tr.steps.length){
     const isEvt=P.tr.steps[P.i].kind==='event';
     if(!(await doStage())||my!==animToken) return;
@@ -812,25 +833,57 @@ function runCommand(cmd,quiet){
 }
 function renderAll(){renderDiagram();renderTargets();renderSandbox();}
 
+// Every non-loopback address each host owns.
+const HOST_ADDRS={coworker:['192.168.1.30'],laptop:['192.168.1.20'],bastion:['203.0.113.10','10.0.0.1'],intranet:['10.0.0.20']};
+const liveTunnels=()=>{const S=state.session;return S&&S.conn?S.tunnels.filter(t=>t.ok):[];};
+// What a sender would find at addr:port, for the "Sent to" labels. 127.0.0.1 is read from the sender's side.
+function targetLabel(from,v){
+  const [a,p]=splitTarget(v),D=destOf(from,a);
+  if(!D.host) return `${a}:${p}  unknown address`;
+  const who=a==='127.0.0.1'?`${from} itself`:D.host;
+  const tun=liveTunnels().find(t=>t.lhost===D.host&&t.lport===p);
+  const svc=SERVICES[D.host][p];
+  const what=tun?`-${tun.type} listener${scopeAllows(tun.scope,D.iface)?'':` (bound to ${BINDIP[tun.scope]})`}`
+    :svc?svc.name+(svc.bind==='lo'&&D.iface!=='lo'?' (127.0.0.1 only)':''):'nothing listening';
+  return `${a}:${p}  ${who}, ${what}`;
+}
 function targets(){
-  const list=[],S=state.session;
-  if(S&&S.conn) S.tunnels.filter(t=>t.ok).forEach(t=>list.push({v:`${t.lhost}:${t.lport}`,l:`${IP[t.lhost]}:${t.lport}  ${t.lhost}, -${t.type} listener`}));
-  [['intranet',80],['intranet',5432],['laptop',3000],['bastion',9090],['coworker',8000],['bastion',22]].forEach(([h,p])=>{
-    if(!list.some(x=>x.v===`${h}:${p}`)) list.push({v:`${h}:${p}`,l:`${IP[h]}:${p}  ${h} ${SERVICES[h][p].name}, direct`});
-  });
-  return list;
+  const tun=[],seen=new Set(),add=(list,v)=>{if(!seen.has(v)){seen.add(v);list.push(v);}};
+  // Each tunnel listener is offered on loopback and on each of the host's own addresses,
+  // so students can see which ones a given bind address actually answers on.
+  liveTunnels().forEach(t=>['127.0.0.1',...HOST_ADDRS[t.lhost]].forEach(a=>add(tun,`${a}:${t.lport}`)));
+  const svc=[];
+  ['10.0.0.20:80','10.0.0.20:5432','127.0.0.1:3000','127.0.0.1:9090','192.168.1.30:8000','203.0.113.10:22'].forEach(v=>add(svc,v));
+  return [['Tunnel listeners',tun],['Services, direct',svc]].filter(g=>g[1].length);
 }
 function renderTargets(){
-  const from=$('#t-from'),to=$('#t-to'),fv=from.value,tv=to.value;
+  const from=$('#t-from'),to=$('#t-to'),fv=from.value||'laptop',tv=to.value;
   from.innerHTML=ORDER.map(h=>`<option value="${h}">${h}</option>`).join('');
-  const T=targets();
-  to.innerHTML=T.map(t=>`<option value="${esc(t.v)}">${esc(t.l)}</option>`).join('');
-  if(fv) from.value=fv;
-  if(tv&&T.some(t=>t.v===tv)) to.value=tv;
+  from.value=fv;
+  const opt=v=>`<option value="${esc(v)}">${esc(targetLabel(fv,v))}</option>`;
+  to.innerHTML=targets().map(([g,vs])=>`<optgroup label="${g}">${vs.map(opt).join('')}</optgroup>`).join('');
+  if(tv) setTarget(tv);
+}
+// Select addr:port in "Sent to", adding it if the list doesn't already offer it.
+function setTarget(v){
+  const to=$('#t-to');
+  if(![...to.options].some(o=>o.value===v)){
+    const o=document.createElement('option');o.value=v;o.textContent=targetLabel($('#t-from').value,v);to.appendChild(o);
+  }
+  to.value=v;
+}
+function setSender(h){$('#t-from').value=h;renderTargets();}
+// The address a sender would use for a listener: its own loopback when the listener is loopback-only,
+// otherwise the address the listener is bound to (or the interface facing the sender).
+function defaultAddr(from,t){
+  if(from!==t.lhost) return natAddr(from,t.lhost);
+  if(t.scope==='lo') return '127.0.0.1';
+  if(t.scope==='all') return t.type==='R'?'203.0.113.10':'127.0.0.1';
+  return BINDIP[t.scope];
 }
 function pickDefaultTarget(){
-  const S=state.session,t=S&&S.conn&&S.tunnels.find(t=>t.ok);
-  if(t){$('#t-from').value=defaultSender(t);$('#t-to').value=`${t.lhost}:${t.lport}`;}
+  const t=liveTunnels()[0];
+  if(t){const f=defaultSender(t);setSender(f);setTarget(`${defaultAddr(f,t)}:${t.lport}`);}
 }
 // A listener bound beyond loopback is meant for other hosts, so send from the outside neighbour:
 // coworker for -L (laptop side), intranet for -R (bastion side). Fall back to any host that can reach it.
@@ -839,7 +892,7 @@ function defaultSender(t){
   if(t.asked) return t.type==='L'?'coworker':'intranet';
   if(t.scope==='lo') return t.lhost;
   const prefer=t.type==='L'?['coworker','bastion']:['intranet','laptop'];
-  for(const h of prefer){const i=netReach(h,t.lhost);if(i&&scopeAllows(t.scope,h,t.lhost,i)) return h;}
+  for(const h of prefer){const i=netReach(h,t.lhost);if(i&&scopeAllows(t.scope,i)) return h;}
   return t.lhost;
 }
 function renderSandbox(){
@@ -850,11 +903,11 @@ function renderSandbox(){
   }
   box.innerHTML=S.tunnels.map(t=>{
     if(!t.ok) return `<div class="lst fail"><span class="head">-${t.type} ${esc(t.raw)}</span><span class="why">${esc(t.why)}</span></div>`;
-    const who=ORDER.filter(h=>{const i=netReach(h,t.lhost);return i&&scopeAllows(t.scope,h,t.lhost,i);});
+    const who=ORDER.filter(h=>{if(h===t.lhost) return true;const i=netReach(h,t.lhost);return i&&scopeAllows(t.scope,i);});
     return `<div class="lst ${t.type}"><span class="head">-${t.type} ${esc(t.raw)}</span>
       <span class="note">listens on ${t.lhost} ${BINDIP[t.scope]}:${t.lport} · ${esc(t.dhost)} is interpreted on the ${t.far}</span>
       ${t.note?`<span class="note">${esc(t.note)}</span>`:''}
-      <div class="chips"><small>send a packet from:</small>${who.map(h=>`<button class="chip" type="button" data-from="${h}" data-host="${t.lhost}" data-port="${t.lport}">${h}</button>`).join('')}</div></div>`;
+      <div class="chips"><small>send a packet from:</small>${who.map(h=>`<button class="chip" type="button" data-from="${h}" data-to="${defaultAddr(h,t)}:${t.lport}" title="${h} → ${defaultAddr(h,t)}:${t.lport}">${h}</button>`).join('')}</div></div>`;
   }).join('');
 }
 
@@ -933,11 +986,13 @@ function openChallenge(i){
   runCommand(c.cmd||'');
 }
 let lastChecks=[];
-function testLabel(t){const i=netReach(t.from,t.host);return `${t.from} → ${t.from===t.host?'127.0.0.1':i?addrOf(t.host,i):IP[t.host]}:${t.port}`;}
+// A test sends from t.from to the address that host would naturally use: 127.0.0.1 for itself, else the facing interface.
+const testAddr=t=>t.addr||natAddr(t.from,t.host);
+function testLabel(t){return `${t.from} → ${testAddr(t)}:${t.port}`;}
 function check(){
   const c=CH[state.ch];
   lastChecks=c.tests.map(t=>{
-    const tr=connect(t.from,t.host,t.port);
+    const tr=connect(t.from,testAddr(t),t.port);
     const pass=t.e==='fail'?!tr.ok:(tr.ok&&tr.final.host===t.e.host&&tr.final.port===t.e.port);
     return {t,tr,pass};
   });
@@ -950,15 +1005,13 @@ function check(){
   $('#ch-banner').hidden=!all;
   if(all){solved.add(c.title);saveSolved();renderChList();}
   const show=lastChecks.find(r=>!r.pass)||lastChecks[0];
-  $('#t-from').value=show.t.from;
-  const v=`${show.t.host}:${show.t.port}`;if([...$('#t-to').options].some(o=>o.value===v))$('#t-to').value=v;
+  setSender(show.t.from);setTarget(`${testAddr(show.t)}:${show.t.port}`);
   playAll(show.tr);
 }
 function replayCheck(k){
   const r=lastChecks[k];if(!r) return;
-  $('#t-from').value=r.t.from;
-  const v=`${r.t.host}:${r.t.port}`;if([...$('#t-to').options].some(o=>o.value===v))$('#t-to').value=v;
-  playAll(connect(r.t.from,r.t.host,r.t.port));
+  setSender(r.t.from);setTarget(`${testAddr(r.t)}:${r.t.port}`);
+  playAll(connect(r.t.from,testAddr(r.t),r.t.port));
 }
 
 /* ---------- wiring ---------- */
@@ -986,11 +1039,11 @@ $('#atf').addEventListener('change',cfgChanged);
 $('#p-send').addEventListener('click',()=>playAll(newTrace()));
 $('#p-step').addEventListener('click',stepOnce);
 $('#p-reset').addEventListener('click',resetPlayer);
-$('#t-from').addEventListener('change',resetPlayer);
+$('#t-from').addEventListener('change',()=>{renderTargets();resetPlayer();});
 $('#t-to').addEventListener('change',resetPlayer);
 $('#listeners').addEventListener('click',e=>{
   const b=e.target.closest('.chip');if(!b) return;
-  $('#t-from').value=b.dataset.from;$('#t-to').value=`${b.dataset.host}:${b.dataset.port}`;
+  setSender(b.dataset.from);setTarget(b.dataset.to);
   playAll(newTrace());
 });
 const ex=$('#examples');
