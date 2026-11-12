@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Interactive simulator for learning SSH local (-L) and remote (-R) port forwarding.">
-<title>SSH Tunnel Simulator</title>
+<meta name="description" content="SSH tunnel simulator with an editable network canvas: build a network, then practise ssh -L and -R through it.">
+<title>SSH Tunnel Lab</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&display=swap">
 <style>
-/* Layout: terminal strip on top, network diagram as the stage, sshd_config + tests in a side rail. */
+/* Layout: terminal strip on top, editable network canvas as the stage, sshd_config + inspector in a side rail. */
 :root{
   --bg:#eef2f5; --surface:#ffffff; --zone:#e4eaf0; --line:#cfd8e1; --line-strong:#a9b6c4;
   --ink:#16202b; --ink-soft:#3c4a5a; --muted:#5d6b7b;
@@ -48,11 +48,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--f-display);font-siz
 .app{max-width:1260px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
 .top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
 h1{margin:0;font-weight:700;font-size:30px;letter-spacing:-.01em;line-height:1.05;text-wrap:balance}
+.pre{font:600 11px var(--f-mono);letter-spacing:.06em;color:var(--tunnel);background:var(--tunnel-soft);border-radius:3px;padding:2px 6px;vertical-align:middle;margin-left:6px}
 .tag{margin:4px 0 0;font-family:var(--f-mono);font-size:12.5px;color:var(--muted)}
 .tabs{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:3px;gap:3px}
 .tabs button{font:600 14px var(--f-display);letter-spacing:.02em;border:0;background:transparent;color:var(--muted);padding:7px 14px;border-radius:5px;cursor:pointer}
 .tabs button[aria-selected="true"]{background:var(--ink);color:var(--bg)}
-.tabs button:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--L);outline-offset:2px}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--L);outline-offset:2px}
 .count{font-family:var(--f-mono);font-weight:500;font-size:12px;opacity:.8;margin-left:4px}
 
 /* terminal */
@@ -66,54 +67,67 @@ h1{margin:0;font-weight:700;font-size:30px;letter-spacing:-.01em;line-height:1.0
 .prompt{color:var(--term-prompt);white-space:nowrap}
 #cmd{flex:1;min-width:0;background:transparent;border:0;color:var(--term-fg);font:500 14px var(--f-mono);padding:4px 0;caret-color:var(--term-prompt)}
 #cmd:focus{outline:none}
-#cmd::placeholder{color:var(--term-dim)}
 .run{font:600 13px var(--f-display);letter-spacing:.04em;background:var(--term-prompt);color:var(--term-bg);border:0;border-radius:5px;padding:6px 14px;cursor:pointer}
 
 /* main */
 .main{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:14px;align-items:start}
 .main>.stage{grid-column:1;grid-row:1}
-.main>.side{grid-column:2;grid-row:1}
-.main>.syntax{grid-column:1/-1}
-/* Challenges: the syntax reference sits in the left column, beside the challenge list and card. */
-.main.ch{grid-template-rows:auto 1fr}
-.main.ch>.side{grid-row:1/span 2}
-.main.ch>.syntax{grid-column:1;grid-row:2}
+.main>.side{grid-column:2;grid-row:1/span 2}
+.main>.syntax{grid-column:1;grid-row:2}
 .main.ch .syn-grid{grid-template-columns:minmax(0,1fr)}
-@media (max-width:940px){.main,.main.ch{grid-template-columns:minmax(0,1fr);grid-template-rows:none}.main>*,.main.ch>*{grid-column:auto!important;grid-row:auto!important}}
+@media (max-width:940px){.main{grid-template-columns:minmax(0,1fr)}.main>*{grid-column:auto!important;grid-row:auto!important}}
 .stage{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px 14px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.tgrp{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tool{font:600 13px var(--f-display);letter-spacing:.02em;border:1px solid var(--line-strong);background:var(--bg);color:var(--ink);border-radius:5px;padding:5px 10px;cursor:pointer}
+.tool:hover:not(:disabled){border-color:var(--ink)}
+.tool:disabled{opacity:.45;cursor:default}
+.tool.danger{color:var(--bad);border-color:var(--bad);background:transparent}
+.lock{font:12px var(--f-mono);color:var(--muted)}
+.confirm{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--plain-soft);border:1px solid var(--plain);border-radius:6px;padding:7px 10px;font-size:14px}
+.confirm span{flex:1 1 220px}
 .diagram-wrap{overflow-x:auto}
-#net{display:block;width:100%;min-width:700px;height:auto}
+#net{display:block;width:100%;min-width:700px;height:auto;user-select:none;-webkit-user-select:none}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .sw{width:22px;height:0;border-top:3px dashed var(--plain)}
 .sw.t{border-top:5px solid var(--tunnel)}
+.sw.e{border-top-color:var(--egress)}
 .sw.l{width:12px;height:12px;border:1.5px solid var(--L);background:var(--L-soft);border-radius:2px}
 .sw.r{width:12px;height:12px;border:1.5px solid var(--R);background:var(--R-soft);border-radius:2px}
+.sw.c{width:12px;height:12px;border:2px solid var(--L);border-radius:50%;background:var(--surface)}
+.sw.n{width:22px;height:12px;border:1.2px solid var(--line-strong);border-radius:6px;background:var(--zone)}
 .trace{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line);padding-top:10px;min-height:46px}
 .steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-family:var(--f-mono);font-size:12.5px}
 .steps li{display:flex;gap:8px;align-items:center;color:var(--muted)}
-.steps li.on{color:var(--ink)}
 .steps .k{width:18px;flex:none;border-top:3px dashed var(--plain)}
 .steps .k.tunnel{border-top:5px solid var(--tunnel)}
+.steps .k.out{border-top:3px dashed var(--egress)}
+.steps .k.event{border:0;height:8px;width:8px;margin:0 5px;border-radius:50%;background:var(--ink-soft)}
 .steps li.failed .k{border-color:var(--bad)}
+.steps li .no{font-size:11px;color:var(--muted);width:16px;flex:none;text-align:right}
+.steps li.cur{color:var(--ink);font-weight:500}
 .result{margin:2px 0 0;font-family:var(--f-mono);font-size:13px;font-weight:500}
 .result.ok{color:var(--good)} .result.bad{color:var(--bad)}
 .idle{color:var(--muted);font-family:var(--f-mono);font-size:12.5px;margin:0}
+.player{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;border-top:1px solid var(--line);padding-top:10px}
+.player .field{flex:1 1 170px}
+.pbtns{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.pcount{font-family:var(--f-mono);font-size:12px;color:var(--muted);min-width:34px}
 
 /* side */
 .side{display:flex;flex-direction:column;gap:14px;min-width:0}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
 .card h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .cfg{font-family:var(--f-mono);font-size:13px}
-.cfg .path{color:var(--muted);font-size:11.5px}
+.cfg .path{color:var(--muted);font-size:11.5px;word-break:break-word}
 .cfg .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.cfg .key{color:var(--ink)}
 select{font:500 13px var(--f-mono);color:var(--ink);background:var(--bg);border:1px solid var(--line-strong);border-radius:5px;padding:5px 6px;max-width:100%}
+.txt{font:500 13px var(--f-mono);color:var(--ink);background:var(--bg);border:1px solid var(--line-strong);border-radius:5px;padding:5px 6px;min-width:0;width:100%}
 .btn{font:600 14px var(--f-display);letter-spacing:.02em;border:1px solid var(--ink);background:var(--ink);color:var(--bg);border-radius:6px;padding:7px 14px;cursor:pointer}
 .btn.ghost{background:transparent;color:var(--ink);border-color:var(--line-strong)}
 .field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);letter-spacing:.04em;min-width:0}
 .field select{width:100%}
-.testrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .listeners{display:flex;flex-direction:column;gap:10px}
 .lst{border-left:3px solid var(--L);padding:2px 0 2px 10px;display:flex;flex-direction:column;gap:4px;font-family:var(--f-mono);font-size:12.5px;min-width:0}
 .lst.R{border-left-color:var(--R)} .lst.fail{border-left-color:var(--bad)}
@@ -124,15 +138,28 @@ select{font:500 13px var(--f-mono);color:var(--ink);background:var(--bg);border:
 .chips small{color:var(--muted);font-size:11px;margin-right:2px}
 .chip{font:500 11.5px var(--f-mono);border:1px solid var(--line-strong);background:var(--bg);color:var(--ink);border-radius:999px;padding:2px 9px;cursor:pointer}
 .chip:hover{border-color:var(--ink)}
-.empty{color:var(--muted);font-size:13px;margin:0}
+.empty,.hintline{color:var(--muted);font-size:13px;margin:0}
+
+/* inspector */
+.insp{display:flex;flex-direction:column;gap:10px}
+.insp h3{margin:4px 0 0;font:600 11px var(--f-display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.irow{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) 28px;gap:6px;align-items:center}
+.srow{display:grid;grid-template-columns:66px minmax(0,1fr) 96px 28px;gap:6px;align-items:center}
+.rm{font:600 15px var(--f-display);border:1px solid var(--line-strong);background:transparent;color:var(--muted);border-radius:5px;width:28px;height:28px;cursor:pointer;padding:0}
+.rm:hover{color:var(--bad);border-color:var(--bad)}
+.warn{font:11.5px var(--f-mono);color:var(--plain);margin:-4px 0 0}
+.msg{font:12px var(--f-mono);color:var(--bad);margin:0}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px;cursor:pointer}
+.me-note{font-size:13px;color:var(--tunnel);margin:0}
 
 /* challenges */
 .chlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.chlist .grp{font:600 11px var(--f-display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:8px 8px 2px}
 .chlist button{width:100%;text-align:left;display:flex;align-items:center;gap:10px;font:500 14px var(--f-display);background:transparent;border:0;border-radius:6px;padding:6px 8px;color:var(--ink);cursor:pointer}
 .chlist button:hover{background:var(--bg)}
 .chlist button[aria-current="true"]{background:var(--bg);font-weight:700}
 .chlist .n{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);width:18px}
-.chlist .dot{margin-left:auto;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--line-strong)}
+.chlist .dot{margin-left:auto;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--line-strong);flex:none}
 .chlist .dot.done{background:var(--good);border-color:var(--good)}
 .chlist .tg{font:600 10.5px var(--f-mono);letter-spacing:.04em;padding:0 5px;border-radius:3px}
 .tg.L{color:var(--L);background:var(--L-soft)} .tg.R{color:var(--R);background:var(--R-soft)} .tg.S{color:var(--bad);background:var(--bad-soft)}
@@ -160,23 +187,34 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
 .sol p{margin:0}
 .btnrow{display:flex;gap:8px;flex-wrap:wrap}
 
+/* import / export dialog */
+dialog{border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:16px;width:min(620px,calc(100vw - 32px));max-height:calc(100vh - 48px)}
+dialog::backdrop{background:rgba(10,16,22,.45)}
+.dlg{display:flex;flex-direction:column;gap:10px}
+.dlg h2{margin:0;font-size:18px}
+.dlg p{margin:0;font-size:14px;color:var(--muted)}
+.dlg textarea{width:100%;min-height:240px;font:12px/1.4 var(--f-mono);color:var(--ink);background:var(--bg);border:1px solid var(--line-strong);border-radius:6px;padding:8px;resize:vertical}
+.dlg .file{font-size:13px;color:var(--muted)}
+
 /* svg */
-.zone{fill:var(--zone);stroke:var(--line)}
-.zlab{font:600 11px var(--f-display);letter-spacing:.12em;fill:var(--muted)}
-.zsub{font:10.5px var(--f-mono);fill:var(--muted)}
 .link{stroke:var(--line-strong);stroke-width:1.4;fill:none}
-.nat rect{fill:var(--surface);stroke:var(--line-strong)}
-.nat text{font:600 10.5px var(--f-mono);fill:var(--muted)}
+.link.nat{stroke-dasharray:5 4}
+.natlab{font:600 9.5px var(--f-mono);fill:var(--muted)}
+.node{cursor:grab;touch-action:none;outline:none}
+.dragging .node{cursor:grabbing}
+.netnode rect{fill:var(--zone);stroke:var(--line-strong);stroke-width:1.2}
+.netnode .nn{font:600 12px var(--f-display);fill:var(--ink);letter-spacing:.04em}
+.netnode .nc{font:10.5px var(--f-mono);fill:var(--muted)}
 .host rect{fill:var(--surface);stroke:var(--ink-soft);stroke-width:1.2}
+.host.me rect{stroke:var(--tunnel);stroke-width:2}
+.node.sel rect,.node:focus-visible rect{stroke:var(--L);stroke-width:2.5}
 .host .nm{font:600 15px var(--f-display);fill:var(--ink)}
 .host .rl{font:500 10.5px var(--f-mono);fill:var(--muted)}
 .host .ip{font:500 11px var(--f-mono);fill:var(--ink)} .host .ip.sm{font-size:10px}
 .host .sv{font:10px var(--f-mono);fill:var(--muted)}
-.tube-o{stroke:var(--tunnel);stroke-opacity:.16;stroke-width:24;fill:none;stroke-linecap:butt}
-.tube-i{stroke:var(--tunnel);stroke-width:1.6;fill:none;opacity:.7}
-.tube-lab{font:600 12px var(--f-display);fill:var(--tunnel);letter-spacing:.04em}
-.tube-sub{font:10.5px var(--f-mono);fill:var(--muted)}
-.arrowhead{fill:var(--tunnel)}
+.tube-o{stroke:var(--tunnel);stroke-opacity:.16;stroke-width:24;fill:none;stroke-linejoin:round}
+.tube-i{stroke:var(--tunnel);stroke-width:1.6;fill:none;opacity:.7;stroke-linejoin:round}
+.tube-lab{font:600 11.5px var(--f-display);fill:var(--tunnel);letter-spacing:.04em}
 .map{fill:none;stroke-width:1.7;stroke-dasharray:1.5 5;stroke-linecap:round}
 .map.L{stroke:var(--L)} .map.R{stroke:var(--R)} .map.bad{stroke:var(--bad)}
 .bdg rect{stroke-width:1.2}
@@ -192,8 +230,7 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
 .hop.failed{stroke:var(--bad);opacity:.7}
 .mk-in{fill:var(--plain)} .mk-out{fill:var(--egress)}
 .listen{fill:var(--surface);stroke-width:2.5} .listen.L{stroke:var(--L)} .listen.R{stroke:var(--R)}
-.exitring{fill:var(--surface);stroke-width:2} .exitring.L{stroke:var(--L)} .exitring.R{stroke:var(--R)}
-.lport{font:600 11px var(--f-mono)} .lport.L{fill:var(--L)} .lport.R{fill:var(--R)}
+.lport{font:600 11px var(--f-mono);paint-order:stroke;stroke:var(--surface);stroke-width:3px} .lport.L{fill:var(--L)} .lport.R{fill:var(--R)}
 .evt{fill:none;stroke:var(--ink);stroke-width:2;animation:evt .9s ease-out forwards}
 @keyframes evt{from{r:9px;opacity:.9}to{r:26px;opacity:0}}
 .pk circle{stroke:var(--surface);stroke-width:2}
@@ -207,19 +244,7 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
 .endmark.ok circle{fill:var(--good-soft);stroke:var(--good)} .endmark.ok text{fill:var(--good)}
 .endmark.bad circle{fill:var(--bad-soft);stroke:var(--bad)} .endmark.bad text{fill:var(--bad)}
 .endmark text{font:700 14px var(--f-display)}
-@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important}.evt{display:none}}
-.player{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;border-top:1px solid var(--line);padding-top:10px}
-.player .field{flex:1 1 170px}
-.pbtns{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.pcount{font-family:var(--f-mono);font-size:12px;color:var(--muted);min-width:34px}
-.steps li .no{font-size:11px;color:var(--muted);width:16px;flex:none;text-align:right}
-.steps li.cur{color:var(--ink);font-weight:500}
-.steps li.done:not(.cur){color:var(--muted)}
-.steps .k.in,.steps .k.direct{border-top:3px dashed var(--plain)}
-.steps .k.out{border-top:3px dashed var(--egress)}
-.steps .k.event{border:0;height:8px;width:8px;margin:0 5px;border-radius:50%;background:var(--ink-soft)}
-.sw.e{border-top-color:var(--egress)}
-.sw.c{width:12px;height:12px;border:2px solid var(--L);border-radius:50%;background:var(--surface)}
+@media (prefers-reduced-motion: reduce){.evt{display:none}}
 </style>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}</style>
 </head>
@@ -227,8 +252,8 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
 <div class="app">
   <header class="top">
     <div>
-      <h1>SSH Tunnel Simulator</h1>
-      <p class="tag">ssh -L / ssh -R · local and remote port forwarding</p>
+      <h1>SSH Tunnel Simulator<span class="pre">CANVAS PREVIEW</span></h1>
+      <p class="tag">ssh -L / ssh -R · build your own network, then tunnel through it</p>
     </div>
     <div class="tabs" role="tablist" aria-label="Mode">
       <button id="tab-sandbox" role="tab" aria-selected="true">Sandbox</button>
@@ -241,17 +266,30 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
     <div class="term-log" id="log" aria-live="polite"></div>
     <form class="term-line" id="cmd-form">
       <label class="prompt" for="cmd">alex@laptop:~$</label>
-      <input id="cmd" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="">
+      <input id="cmd" autocomplete="off" autocapitalize="off" spellcheck="false">
       <button class="run" type="submit">Run</button>
     </form>
   </section>
 
   <div class="main">
     <section class="stage" aria-label="Network diagram">
+      <div class="toolbar">
+        <div class="tgrp" id="edit-tools">
+          <button class="tool" id="add-host" type="button">+ Host</button>
+          <button class="tool" id="add-net" type="button">+ Network</button>
+          <button class="tool" id="del-node" type="button" disabled>Delete</button>
+        </div>
+        <div class="tgrp" id="file-tools">
+          <select id="layout-pick" aria-label="Start from a layout"></select>
+          <button class="tool" id="export-btn" type="button">Export</button>
+          <button class="tool" id="import-btn" type="button">Import</button>
+        </div>
+        <span class="lock" id="lock-note" hidden></span>
+      </div>
+      <div class="confirm" id="confirm" hidden><span id="confirm-msg"></span><button class="btn" id="confirm-yes" type="button">Replace</button><button class="btn ghost" id="confirm-no" type="button">Cancel</button></div>
       <div class="diagram-wrap">
-        <svg id="net" viewBox="0 0 1000 340" role="img" aria-label="Network in a line: coworker, laptop, bastion, intranet server. Each host reaches only its neighbours.">
+        <svg id="net" viewBox="0 0 1000 420" role="group" aria-label="Network diagram">
           <defs>
-            <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0 0 L10 5 L0 10 z"/></marker>
             <marker id="m-in" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path class="mk-in" d="M0 0 L10 5 L0 10 z"/></marker>
             <marker id="m-out" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path class="mk-out" d="M0 0 L10 5 L0 10 z"/></marker>
           </defs>
@@ -260,6 +298,7 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
         </svg>
       </div>
       <div class="legend">
+        <span><i class="sw n"></i>network</span>
         <span><i class="sw"></i>to the tunnel opening</span>
         <span><i class="sw t"></i>inside SSH (encrypted)</span>
         <span><i class="sw e"></i>tunnel exit → destination</span>
@@ -285,22 +324,32 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
     </section>
 
     <aside class="side">
-      <div class="card cfg">
-        <h2>Bastion sshd_config</h2>
-        <span class="path"># /etc/ssh/sshd_config on 203.0.113.10</span>
-        <div class="row"><label class="key" for="gp">GatewayPorts</label>
-          <select id="gp"><option>no</option><option>yes</option><option>clientspecified</option></select></div>
-        <div class="row"><label class="key" for="atf">AllowTcpForwarding</label>
-          <select id="atf"><option>yes</option><option>local</option><option>remote</option><option>no</option></select></div>
+      <div id="panel-sandbox" class="side">
+        <div class="card">
+          <h2 id="insp-title">Edit the network</h2>
+          <div class="insp" id="insp"></div>
+        </div>
       </div>
 
-      <div id="panel-sandbox" class="side">
+      <div class="card cfg">
+        <h2>sshd_config</h2>
+        <div class="row" id="cfg-pick-row"><label for="cfg-host">Server</label><select id="cfg-host"></select></div>
+        <span class="path" id="cfg-path"></span>
+        <div id="cfg-rows">
+          <div class="row"><label for="gp">GatewayPorts</label>
+            <select id="gp"><option>no</option><option>yes</option><option>clientspecified</option></select></div>
+          <div class="row" style="margin-top:8px"><label for="atf">AllowTcpForwarding</label>
+            <select id="atf"><option>yes</option><option>local</option><option>remote</option><option>no</option></select></div>
+        </div>
+      </div>
+
+      <div id="panel-sandbox-2" class="side">
         <div class="card">
           <h2>Forwards in this session</h2>
           <div class="listeners" id="listeners"></div>
         </div>
         <div class="card">
-          <h2>Examples</h2>
+          <h2>Examples · Classic layout</h2>
           <select id="examples" aria-label="Load an example command"></select>
         </div>
       </div>
@@ -310,7 +359,7 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
           <h2>Challenges</h2>
           <ul class="chlist" id="chlist"></ul>
         </div>
-        <div class="card" id="chcard">
+        <div class="card">
           <h2 id="ch-title"></h2>
           <p class="goal" id="ch-goal"></p>
           <div class="btnrow"><button class="btn" id="ch-check" type="button">Check</button><button class="btn ghost" id="ch-reset" type="button">Reset</button></div>
@@ -322,7 +371,7 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
       </div>
     </aside>
 
-    <section class="card syntax" id="syntax" aria-label="Syntax reference">
+    <section class="card syntax" aria-label="Syntax reference">
       <h2>Syntax reference</h2>
       <div class="syn-grid">
         <div class="syn">
@@ -340,8 +389,22 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
       </div>
     </section>
   </div>
-
 </div>
+
+<dialog id="io-dlg" aria-labelledby="io-title">
+  <form class="dlg" method="dialog" id="io-form">
+    <h2 id="io-title"></h2>
+    <p id="io-help"></p>
+    <textarea id="io-text" spellcheck="false" aria-labelledby="io-title"></textarea>
+    <label class="file" id="io-file-wrap">Or choose a .json file <input type="file" id="io-file" accept=".json,application/json"></label>
+    <p class="msg" id="io-msg"></p>
+    <div class="btnrow">
+      <button class="btn" id="io-main" type="button"></button>
+      <button class="btn ghost" id="io-dl" type="button">Download .json</button>
+      <button class="btn ghost" id="io-close" type="button">Close</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
 (function(){
@@ -350,85 +413,110 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function el(tag,a,parent){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(parent)parent.appendChild(e);return e;}
 function tx(parent,x,y,s,cls,anchor){const t=el('text',{x,y,class:cls,'text-anchor':anchor||'middle'},parent);t.textContent=s;return t;}
+const clone=o=>JSON.parse(JSON.stringify(o));
+const uid=()=>Math.random().toString(36).slice(2,8);
+const cut=(s,n)=>s.length>n?s.slice(0,n-1)+'…':s;
 
-/* ---------- network model: four hosts in a line ---------- */
-// coworker — laptop — bastion — intranet. Each host can only reach its neighbours.
-const HOSTS={
-  coworker:{x:95,role:'LAN',ip:'192.168.1.30',sv:'file share :8000'},
-  laptop:{x:315,role:'ssh client',ip:'192.168.1.20',sv:'dev app 127.0.0.1:3000'},
-  bastion:{x:685,role:'sshd :22',ip:'203.0.113.10 · 10.0.0.1',sv:'admin 127.0.0.1:9090'},
-  intranet:{x:905,role:'server',ip:'10.0.0.20',sv:'wiki :80 · postgres :5432'}
+/* ---------- sample layouts ---------- */
+// Topology: networks are draggable nodes; each host attaches to networks through interfaces.
+// An interface with no IP is outbound-only (behind NAT): the host can reach others there, nobody can address it.
+const LAYOUTS={
+  classic:{name:'Classic: one bastion',topo:{
+    networks:[
+      {id:'home',name:'Home LAN',cidr:'192.168.1.0/24',x:205,y:70},
+      {id:'uplink',name:'Uplink',cidr:'203.0.113.0/24',x:500,y:70},
+      {id:'corp',name:'Corp internal',cidr:'10.0.0.0/24',x:795,y:70}],
+    hosts:[
+      {id:'coworker',name:'coworker',role:'LAN',x:95,y:230,ifaces:[{net:'home',ip:'192.168.1.30'}],services:[{port:8000,name:'file share',bind:'all'}],sshd:null},
+      {id:'laptop',name:'laptop',role:'student',x:315,y:230,ifaces:[{net:'home',ip:'192.168.1.20'},{net:'uplink',ip:''}],services:[{port:3000,name:'dev app',bind:'lo'}],sshd:null},
+      {id:'bastion',name:'bastion',role:'jump host',x:685,y:230,ifaces:[{net:'uplink',ip:'203.0.113.10'},{net:'corp',ip:'10.0.0.1'}],services:[{port:9090,name:'admin',bind:'lo'}],sshd:{port:22,gp:'no',atf:'yes'}},
+      {id:'intranet',name:'intranet',role:'server',x:905,y:230,ifaces:[{net:'corp',ip:'10.0.0.20'}],services:[{port:80,name:'wiki',bind:'all'},{port:5432,name:'postgres',bind:'all'}],sshd:null}]}},
+  twohop:{name:'Two jump hosts',topo:{
+    networks:[
+      {id:'home',name:'Home LAN',cidr:'192.168.1.0/24',x:120,y:70},
+      {id:'inet',name:'Internet',cidr:'203.0.113.0/24',x:500,y:70},
+      {id:'corp',name:'Corp internal',cidr:'10.0.0.0/24',x:880,y:70},
+      {id:'build',name:'Build network',cidr:'172.16.0.0/24',x:500,y:440}],
+    hosts:[
+      {id:'laptop',name:'laptop',role:'student',x:250,y:230,ifaces:[{net:'home',ip:'192.168.1.20'},{net:'inet',ip:''}],services:[{port:3000,name:'dev app',bind:'lo'}],sshd:null},
+      {id:'gitbox',name:'gitbox',role:'git server',x:500,y:270,ifaces:[{net:'inet',ip:'203.0.113.20'},{net:'build',ip:'172.16.0.1'}],services:[{port:8443,name:'git web',bind:'lo'}],sshd:{port:22,gp:'no',atf:'yes'}},
+      {id:'bastion',name:'bastion',role:'jump host',x:760,y:230,ifaces:[{net:'inet',ip:'203.0.113.10'},{net:'corp',ip:'10.0.0.1'}],services:[],sshd:{port:22,gp:'no',atf:'yes'}},
+      {id:'db',name:'db',role:'server',x:1000,y:230,ifaces:[{net:'corp',ip:'10.0.0.30'}],services:[{port:5432,name:'postgres',bind:'all'}],sshd:null},
+      {id:'ci',name:'ci',role:'build server',x:760,y:440,ifaces:[{net:'build',ip:'172.16.0.5'}],services:[{port:8080,name:'CI dashboard',bind:'all'}],sshd:null}]}},
+  blank:{name:'Blank: laptop only',topo:{
+    networks:[{id:'home',name:'Home LAN',cidr:'192.168.1.0/24',x:320,y:70}],
+    hosts:[{id:'laptop',name:'laptop',role:'student',x:320,y:230,ifaces:[{net:'home',ip:'192.168.1.20'}],services:[{port:3000,name:'dev app',bind:'lo'}],sshd:null}]}}
 };
-const ORDER=['coworker','laptop','bastion','intranet'];
-const IP={coworker:'192.168.1.30',laptop:'192.168.1.20',bastion:'203.0.113.10',intranet:'10.0.0.20'};
-const SERVICES={
-  coworker:{8000:{name:'file share',bind:'all'}},
-  laptop:{3000:{name:'dev app',bind:'lo'}},
-  bastion:{22:{name:'sshd',bind:'all'},9090:{name:'admin panel',bind:'lo'}},
-  intranet:{80:{name:'wiki (HTTP)',bind:'all'},5432:{name:'PostgreSQL',bind:'all'}}
-};
-const BINDIP={lo:'127.0.0.1',all:'0.0.0.0',lan:'192.168.1.20',public:'203.0.113.10',internal:'10.0.0.1'};
-const IPMAP={'192.168.1.20':['laptop','lan'],'192.168.1.30':['coworker','lan'],'203.0.113.10':['bastion','public'],'10.0.0.1':['bastion','internal'],'10.0.0.20':['intranet','lan']};
-const DNS={
-  coworker:{coworker:['coworker','lan'],laptop:['laptop','lan']},
-  laptop:{laptop:['laptop','lan'],coworker:['coworker','lan'],bastion:['bastion','public']},
-  bastion:{bastion:['bastion','public'],intranet:['intranet','lan'],'intranet.corp.internal':['intranet','lan']},
-  intranet:{intranet:['intranet','lan'],bastion:['bastion','internal']}
-};
-const adj=(a,b)=>Math.abs(ORDER.indexOf(a)-ORDER.indexOf(b))===1;
-// Which interface a connection from `from` arrives on at `to`, or null if there is no route.
-function netReach(from,to){
-  if(from===to) return 'lo';
-  if(!adj(from,to)) return null;
-  if(to==='bastion') return from==='intranet'?'internal':'public';
-  return 'lan';
-}
-function addrOf(to,iface){
-  if(iface==='lo') return '127.0.0.1';
-  if(to==='bastion') return iface==='internal'?'10.0.0.1':'203.0.113.10';
-  return IP[to];
-}
-// A listener bound to `scope` accepts a connection that arrived on `iface` (the address it was sent to).
-// Loopback is not special-cased: a 127.0.0.1-only listener refuses a connection to the host's own LAN IP.
-function scopeAllows(scope,iface){
-  return scope==='all'||scope===iface;
-}
-// Where a packet sent from `from` to `addr` lands: the host, the interface it arrives on, and whether there's a route.
-// 127.0.0.1 always means the sender itself.
-function destOf(from,addr){
-  if(addr==='127.0.0.1'||addr==='localhost') return {host:from,iface:'lo',addr:'127.0.0.1',route:true};
-  const m=IPMAP[addr];
-  if(!m) return {host:null,addr,route:false};
-  const [host,iface]=m;
-  if(host===from) return {host,iface,addr,route:true};
-  return {host,iface,addr,route:reachFrom(from,{host,ipIface:iface})!==null};
-}
-// The address a sender would naturally use for `host`: loopback for itself, otherwise the interface facing it.
+
+/* ---------- topology queries ---------- */
+let T=null;   // the topology on screen (sandbox map or a challenge layout)
+const H=id=>T.hosts.find(h=>h.id===id);
+const N=id=>T.networks.find(n=>n.id===id);
+const nm=id=>{const h=H(id);return h?h.name:id;};
+const hostIPs=id=>H(id).ifaces.filter(i=>i.ip).map(i=>i.ip);
+const onNet=(id,net)=>!!H(id)&&H(id).ifaces.some(i=>i.net===net);
+function addrOwner(ip){for(const h of T.hosts)for(const i of h.ifaces)if(i.ip&&i.ip===ip)return {host:h.id,net:i.net};return null;}
+function services(id){const h=H(id),s={};h.services.forEach(v=>s[v.port]=v);if(h.sshd)s[h.sshd.port]={port:h.sshd.port,name:'sshd',bind:'all'};return s;}
+const svcAt=(id,port)=>services(id)[port];
+// A listener (or service) bound to `scope` accepts a connection that arrived on `iface`: 'lo' or the IP it was sent to.
+const scopeAllows=(scope,iface)=>scope==='all'||scope===iface;
+const scopeIP=s=>s==='lo'?'127.0.0.1':s==='all'?'0.0.0.0':s;
+// A network both hosts are on, where `b` has an address.
+function sharedNet(a,b){for(const i of H(a).ifaces)if(H(b).ifaces.some(j=>j.net===i.net&&j.ip))return i.net;return null;}
+// The address `from` would naturally use for `host`: loopback for itself, otherwise its address on a shared network.
 function natAddr(from,host){
   if(from===host) return '127.0.0.1';
-  const i=netReach(from,host);
-  return i?addrOf(host,i):IP[host];
+  const n=sharedNet(from,host);
+  if(n) return H(host).ifaces.find(i=>i.net===n&&i.ip).ip;
+  return hostIPs(host)[0]||'0.0.0.0';
 }
+// Where a packet sent from `from` to `addr` lands. 127.0.0.1 always means the sender itself.
+function destOf(from,addr){
+  if(addr==='127.0.0.1'||addr==='localhost') return {host:from,iface:'lo',addr:'127.0.0.1',route:true};
+  const o=addrOwner(addr);
+  if(!o) return {host:null,addr,route:false};
+  return {host:o.host,net:o.net,iface:addr,addr,route:o.host===from||onNet(from,o.net)};
+}
+// Name lookup from `resolver`'s point of view: hosts it shares a network with, plus itself.
 function resolve(name,resolver){
   const n=name.toLowerCase();
-  if(['localhost','127.0.0.1','::1','ip6-localhost'].includes(n)) return {host:resolver,ipIface:'lo',ip:'127.0.0.1'};
-  if(IPMAP[n]) return {host:IPMAP[n][0],ipIface:IPMAP[n][1],ip:n};
-  if(/^\d{1,3}(\.\d{1,3}){3}$/.test(n)) return {host:null,ip:n};
-  const t=DNS[resolver][n];
-  if(!t) return {err:`Could not resolve hostname ${name}: Name or service not known`};
-  return {host:t[0],ipIface:t[1],ip:t[0]==='bastion'?BINDIP[t[1]]:IP[t[0]]};
+  if(['localhost','127.0.0.1','::1'].includes(n)) return {host:resolver,iface:'lo',ip:'127.0.0.1'};
+  if(/^\d{1,3}(\.\d{1,3}){3}$/.test(n)){const o=addrOwner(n);return o?{host:o.host,net:o.net,iface:n,ip:n}:{host:null,ip:n};}
+  const h=T.hosts.find(x=>x.name.toLowerCase()===n);
+  if(h&&h.id===resolver){const i=h.ifaces.find(x=>x.ip);return i?{host:h.id,net:i.net,iface:i.ip,ip:i.ip}:{host:h.id,iface:'lo',ip:'127.0.0.1'};}
+  if(h){const net=sharedNet(resolver,h.id);if(net){const ip=h.ifaces.find(i=>i.net===net&&i.ip).ip;return {host:h.id,net,iface:ip,ip};}}
+  return {err:`Could not resolve hostname ${name}: Name or service not known`};
 }
-function reachFrom(resolver,r){
+// The interface a connection from `from` arrives on, or null when there's no route.
+function reach(from,r){
   if(!r.host) return null;
-  if(r.host===resolver) return r.ipIface==='lo'?'lo':'own';
-  if(r.host==='bastion'&&r.ipIface==='internal'&&resolver!=='intranet') return null;
-  if(r.host==='bastion'&&r.ipIface==='public'&&resolver!=='laptop') return null;
-  return netReach(resolver,r.host);
+  if(r.host===from) return r.iface;
+  return onNet(from,r.net)?r.iface:null;
+}
+
+/* ---------- addresses ---------- */
+const ipRe=/^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const ip2n=ip=>ip.split('.').reduce((a,b)=>a*256+(+b),0);
+const n2ip=n=>[24,16,8,0].map(s=>Math.floor(n/2**s)%256).join('.');
+function cidrParts(c){
+  const m=/^([\d.]+)\/(\d{1,2})$/.exec(String(c||'').trim());
+  if(!m||!ipRe.test(m[1])||+m[2]>30||+m[2]<8) return null;
+  const bits=+m[2],size=2**(32-bits);
+  return {base:Math.floor(ip2n(m[1])/size)*size,size,bits};
+}
+const normCidr=p=>n2ip(p.base)+'/'+p.bits;
+function inCidr(ip,c){const p=cidrParts(c);if(!p||!ipRe.test(ip))return false;const n=ip2n(ip);return n>p.base&&n<p.base+p.size-1;}
+const usableIP=v=>ipRe.test(v)&&!v.startsWith('127.')&&v!=='0.0.0.0';
+function nextIP(net){
+  const p=cidrParts(N(net).cidr);if(!p) return '';
+  const used=new Set(T.hosts.flatMap(h=>h.ifaces.map(i=>i.ip)));
+  for(let k=p.size>32?10:1;k<p.size-1;k++){const ip=n2ip(p.base+k);if(!used.has(ip)) return ip;}
+  return '';
 }
 
 /* ---------- ssh command parsing ---------- */
 const USAGE='usage: ssh [-fgNT] [-L [bind_address:]port:host:hostport] [-R [bind_address:]port:host:hostport] [-p port] [-o option] [user@]hostname';
-const toPort=s=>/^\d+$/.test(s)&&+s>=1&&+s<=65535?+s:0;
+const toPort=s=>/^\d+$/.test(String(s))&&+s>=1&&+s<=65535?+s:0;
 function spec(v,c){
   const parts=v.split(':');
   const bad={err:`Bad ${c==='L'?'local':'remote'} forwarding specification '${v}'`};
@@ -476,6 +564,7 @@ function option(p,c,v){
   else if(c==='p'){const n=toPort(v);if(!n){p.errors.push(`Bad port '${v}'`);p.fatal=true;}else p.port=n;}
   else if(c==='l') p.user=v;
   else if(c==='D') p.warns.push(`-D ${v}: dynamic (SOCKS) forwarding isn't simulated here`);
+  else if(c==='J') p.warns.push(`-J ${v}: jump hosts aren't simulated yet`);
   else if(c==='o'){
     const m=v.split('='),k=(m[0]||'').toLowerCase(),val=(m[1]||'').toLowerCase();
     if(k==='exitonforwardfailure'||k==='gatewayports') p.opts[k]=val;
@@ -484,22 +573,16 @@ function option(p,c,v){
 }
 
 /* ---------- session simulation ---------- */
-function laptopScope(b){
+// Which address a forward's bind_address means on `host`.
+function hostScope(host,b){
   if(b===''||b==='*'||b==='0.0.0.0') return 'all';
   if(b==='localhost'||b==='127.0.0.1') return 'lo';
-  if(b==='192.168.1.20') return 'lan';
-  return null;
-}
-function bastionScope(b){
-  if(b===''||b==='*'||b==='0.0.0.0') return 'all';
-  if(b==='localhost'||b==='127.0.0.1') return 'lo';
-  if(b==='203.0.113.10') return 'public';
-  if(b==='10.0.0.1') return 'internal';
-  return null;
+  return hostIPs(host).includes(b)?b:null;
 }
 const conflict=(list,port,scope)=>list.some(u=>u.port===port&&(u.scope==='all'||scope==='all'||u.scope===scope));
+const inUse=id=>Object.values(services(id)).map(s=>({port:s.port,scope:s.bind}));
 
-function simulate(cmd,cfg){
+function simulate(cmd){
   const p=parse(cmd),log=[],S={cmd,p,conn:false,tunnels:[],log,user:p.user||'alex'};
   log.push({c:'cmd',t:cmd});
   if(p.fatal){p.errors.forEach(e=>log.push({c:'err',t:e}));return S;}
@@ -507,22 +590,25 @@ function simulate(cmd,cfg){
   if(!p.host){log.push({c:'err',t:USAGE});return S;}
   const r=resolve(p.host,'laptop');
   if(r.err){log.push({c:'err',t:'ssh: '+r.err});return S;}
-  if(r.host!=='bastion'||r.ipIface!=='public'||p.port!==22){
-    const timeout=!r.host||reachFrom('laptop',r)===null;
-    log.push({c:'err',t:`ssh: connect to host ${r.ip} port ${p.port}: ${timeout?'Connection timed out':'Connection refused'}`});
-    if(r.host&&r.host!=='bastion'&&!timeout) log.push({c:'dim',t:`(only the bastion runs sshd in this network)`});
+  const ri=reach('laptop',r),sshd=r.host?H(r.host).sshd:null;
+  if(ri===null){log.push({c:'err',t:`ssh: connect to host ${r.ip} port ${p.port}: Connection timed out`});
+    if(r.host) log.push({c:'dim',t:`(the laptop shares no network with ${nm(r.host)} at ${r.ip})`});return S;}
+  if(!sshd||sshd.port!==p.port){
+    log.push({c:'err',t:`ssh: connect to host ${r.ip} port ${p.port}: Connection refused`});
+    log.push({c:'dim',t:sshd?`(sshd on ${nm(r.host)} listens on port ${sshd.port})`:`(${nm(r.host)} doesn't run an SSH server)`});
     return S;
   }
-  S.conn=true;
-  log.push({c:'dim',t:`Authenticated to 203.0.113.10 ([203.0.113.10]:22) using "publickey".`});
-  const used={laptop:[{port:3000,scope:'lo'}],bastion:[{port:22,scope:'all'},{port:9090,scope:'lo'}]};
+  const srv=r.host,cfg=sshd;
+  S.conn=true;S.server=srv;S.net=r.net;S.serverIP=r.ip;
+  log.push({c:'dim',t:`Authenticated to ${r.ip} ([${r.ip}]:${p.port}) using "publickey".`});
+  const used={laptop:inUse('laptop'),[srv]:inUse(srv)};
   const gw=p.flags.has('g')||p.opts.gatewayports==='yes';
   let anyFail=false;
   for(const f of p.fw){
     const t={type:f.type,raw:f.raw,reqBind:f.bind,lport:f.lport,dhost:f.dhost,dport:f.dport,ok:false};
     if(f.type==='L'){
-      t.lhost='laptop';t.far='bastion';
-      const scope=f.bind===null?(gw?'all':'lo'):laptopScope(f.bind);
+      t.lhost='laptop';t.far=srv;
+      const scope=f.bind===null?(gw?'all':'lo'):hostScope('laptop',f.bind);
       const shownBind=f.bind===null?(gw?'0.0.0.0':'127.0.0.1'):(f.bind===''||f.bind==='*'?'0.0.0.0':f.bind);
       let why=null;
       if(scope===null) why='Cannot assign requested address';
@@ -534,22 +620,21 @@ function simulate(cmd,cfg){
         anyFail=true;
       } else {t.ok=true;t.scope=scope;used.laptop.push({port:f.lport,scope});}
     } else {
-      t.lhost='bastion';t.far='laptop';
-      let scope=cfg.gp==='no'?'lo':cfg.gp==='yes'?'all':(f.bind===null?'lo':bastionScope(f.bind));
+      t.lhost=srv;t.far='laptop';
+      const scope=cfg.gp==='no'?'lo':cfg.gp==='yes'?'all':(f.bind===null?'lo':hostScope(srv,f.bind));
       let why=null;
       if(cfg.atf==='no'||cfg.atf==='local') why=`sshd refuses remote forwarding (AllowTcpForwarding ${cfg.atf})`;
-      else if(scope===null) why=`${f.bind} isn't an address on the bastion`;
-      else if(f.lport<1024&&S.user!=='root') why=`Ports below 1024 on the bastion need a root login`;
-      else if(conflict(used.bastion,f.lport,scope)) why=`Port ${f.lport} is already in use on the bastion`;
+      else if(scope===null) why=`${f.bind} isn't an address on ${nm(srv)}`;
+      else if(f.lport<1024&&S.user!=='root') why=`Ports below 1024 on ${nm(srv)} need a root login`;
+      else if(conflict(used[srv],f.lport,scope)) why=`Port ${f.lport} is already in use on ${nm(srv)}`;
       if(why){log.push({c:'err',t:`Warning: remote port forwarding failed for listen port ${f.lport}`});t.why=why;anyFail=true;}
       else {
-        t.ok=true;t.scope=scope;used.bastion.push({port:f.lport,scope});
+        t.ok=true;t.scope=scope;used[srv].push({port:f.lport,scope});
         if(f.bind!==null&&cfg.gp!=='clientspecified'){
           const req=f.bind===''||f.bind==='*'?'0.0.0.0':f.bind;
-          if(req!==BINDIP[scope]){
-            t.note=`asked for ${req}, sshd bound ${BINDIP[scope]} (GatewayPorts ${cfg.gp})`;
-            t.asked=req;
-            log.push({c:'dim',t:`# bastion sshd: GatewayPorts ${cfg.gp}, so -R ${f.lport} is bound to ${BINDIP[scope]}, not ${req}`});
+          if(req!==scopeIP(scope)){
+            t.note=`asked for ${req}, sshd bound ${scopeIP(scope)} (GatewayPorts ${cfg.gp})`;t.asked=req;
+            log.push({c:'dim',t:`# ${nm(srv)} sshd: GatewayPorts ${cfg.gp}, so -R ${f.lport} is bound to ${scopeIP(scope)}, not ${req}`});
           }
         }
       }
@@ -561,177 +646,209 @@ function simulate(cmd,cfg){
     S.conn=false;S.exited=true;S.tunnels.forEach(t=>t.ok=false);
     return S;
   }
-  log.push({c:'dim',t:p.flags.has('N')?'(-N: no remote shell; connection stays open for forwarding)':`${S.user}@bastion:~$`});
+  log.push({c:'dim',t:p.flags.has('N')?'(-N: no remote shell; connection stays open for forwarding)':`${S.user}@${nm(srv)}:~$`});
   return S;
 }
 
 /* ---------- a single TCP connection attempt, as a list of stages ---------- */
 let chanNo=2;
-// `addr` is the IP the sender types. 127.0.0.1 means the sender's own loopback.
+const liveTunnels=()=>{const S=state.session;return S&&S.conn?S.tunnels.filter(t=>t.ok):[];};
 function connect(from,addr,port){
-  const S=state.session,cfg=state.cfg,steps=[],out=[];
+  const S=state.session,steps=[],out=[];
   const D=destOf(from,addr),host=D.host,a=D.addr;
   const res=(ok,reason,final)=>({ok,reason,final,steps,out,from,host,addr:a,port});
   if(!host) return res(false,`No host in this network has the address ${a}`);
-  const here=S&&S.conn?S.tunnels.filter(t=>t.ok&&t.lhost===host&&t.lport===port):[];
+  const here=liveTunnels().filter(t=>t.lhost===host&&t.lport===port);
   // Two listeners can share a port on different addresses; pick the one bound to the address used.
   const tun=here.find(t=>scopeAllows(t.scope,D.iface))||here[0];
-  const where=from===host&&a!=='127.0.0.1'?` (${from}'s own ${D.iface==='lan'?'LAN':D.iface} address, not loopback)`:'';
+  const where=from===host&&a!=='127.0.0.1'?` (${nm(from)}'s own address, not loopback)`:'';
   if(tun){
-    const s1={kind:'in',from,lhost:host,cx:listenX(tun),label:`${from} opens a TCP connection to ${a}:${port}${where}, the tunnel's listening port. Plaintext.`};
-    if(!D.route){s1.failed=true;s1.stopAt=.5;steps.push(s1);return res(false,`${a} isn't reachable from ${from}: no direct route`);}
+    const s1={kind:'in',from,lhost:host,net:D.net,t:tun,label:`${nm(from)} opens a TCP connection to ${a}:${port}${where}, the tunnel's listening port. Plaintext.`};
+    if(!D.route){s1.failed=true;s1.stopAt=.5;steps.push(s1);return res(false,`${a} isn't reachable from ${nm(from)}: they share no network`);}
     if(!scopeAllows(tun.scope,D.iface)){
-      s1.failed=true;s1.stopAt=.88;steps.push(s1);
-      return res(false,`Connection refused: the -${tun.type} listener on ${host} is bound to ${BINDIP[tun.scope]}:${port}, not ${a}:${port}`);
+      s1.failed=true;s1.stopAt=.9;steps.push(s1);
+      return res(false,`Connection refused: the -${tun.type} listener on ${nm(host)} is bound to ${scopeIP(tun.scope)}:${port}, not ${a}:${port}`);
     }
     steps.push(s1);
-    const far=tun.far,ch=chanNo++;
+    const far=tun.far,ch=chanNo++,srv=nm(S.server),cfg=H(S.server).sshd;
     steps.push({kind:'event',label:tun.type==='L'
-      ?`ssh on laptop accepts it and asks the bastion to open channel ${ch} (direct-tcpip) to ${tun.dhost}:${tun.dport}.`
-      :`sshd on bastion accepts it and opens channel ${ch} (forwarded-tcpip) back to the laptop.`});
-    steps.push({kind:'tunnel',dir:tun.type,cx:listenX(tun),label:tun.type==='L'
-      ?`The data crosses laptop → bastion encrypted inside the existing SSH connection.`
-      :`The data crosses bastion → laptop encrypted inside the SSH connection, the opposite way to how it was opened.`});
+      ?`ssh on laptop accepts it and asks ${srv} to open channel ${ch} (direct-tcpip) to ${tun.dhost}:${tun.dport}.`
+      :`sshd on ${srv} accepts it and opens channel ${ch} (forwarded-tcpip) back to the laptop.`});
+    steps.push({kind:'tunnel',t:tun,label:tun.type==='L'
+      ?`The data crosses laptop → ${srv} encrypted inside the existing SSH connection.`
+      :`The data crosses ${srv} → laptop encrypted inside the SSH connection, the opposite way to how it was opened.`});
     if(tun.type==='L'&&(cfg.atf==='no'||cfg.atf==='remote')){
-      steps.push({kind:'event',failed:true,label:`sshd on bastion refuses channel ${ch}: AllowTcpForwarding ${cfg.atf}.`});
+      steps.push({kind:'event',failed:true,label:`sshd on ${srv} refuses channel ${ch}: AllowTcpForwarding ${cfg.atf}.`});
       out.push(`channel ${ch}: open failed: administratively prohibited: open failed`);
-      return res(false,`The bastion refused the channel (AllowTcpForwarding ${cfg.atf})`);
+      return res(false,`${srv} refused the channel (AllowTcpForwarding ${cfg.atf})`);
     }
-    const who=far==='bastion'?'sshd on bastion':'ssh on laptop';
+    const who=far===S.server?`sshd on ${srv}`:'ssh on laptop';
     const r=resolve(tun.dhost,far);
     if(r.err){
       steps.push({kind:'event',failed:true,label:`${who} decrypts the data but can't resolve "${tun.dhost}".`});
       out.push(tun.type==='L'?`channel ${ch}: open failed: connect failed: Name or service not known`:`connect_to ${tun.dhost}: unknown host (Name or service not known)`);
-      return res(false,`The ${far} can't resolve "${tun.dhost}"`);
+      return res(false,`${nm(far)} can't resolve "${tun.dhost}"`);
     }
-    steps.push({kind:'event',label:/^\d/.test(tun.dhost)?`${who} decrypts the data. It reads ${tun.dhost} from its own point of view${r.ipIface==='lo'?`, so 127.0.0.1 means the ${far} itself`:''}.`:`${who} decrypts the data and looks up "${tun.dhost}" → ${r.ip}.`});
-    const ri=reachFrom(far,r);
-    const s5={kind:'out',far,dest:r.host,label:`${far} opens a new TCP connection to ${r.ip}:${tun.dport}. Plaintext.`};
-    if(!ri){
+    steps.push({kind:'event',label:/^\d/.test(tun.dhost)?`${who} decrypts the data. It reads ${tun.dhost} from its own point of view${r.iface==='lo'?`, so 127.0.0.1 means ${nm(far)} itself`:''}.`:`${who} decrypts the data and looks up "${tun.dhost}" → ${r.ip}.`});
+    const ri=reach(far,r);
+    const s5={kind:'out',t:tun,dest:r.host,net:r.net,label:`${nm(far)} opens a new TCP connection to ${r.ip}:${tun.dport}. Plaintext.`};
+    if(ri===null){
       if(r.host){s5.failed=true;s5.stopAt=.5;steps.push(s5);}
       out.push(tun.type==='L'?`channel ${ch}: open failed: connect failed: Connection timed out`:`connect_to ${tun.dhost} port ${tun.dport}: failed.`);
-      return res(false,`The ${far} can't reach ${r.ip}: no direct route`);
+      return res(false,r.host?`${nm(far)} can't reach ${r.ip}: they share no network`:`No host in this network has the address ${r.ip}`);
     }
-    const svc=SERVICES[r.host][tun.dport];
-    if(!svc||(svc.bind==='lo'&&ri!=='lo')){
+    const svc=svcAt(r.host,tun.dport);
+    if(!svc||!scopeAllows(svc.bind,ri)){
       s5.failed=true;s5.stopAt=.9;steps.push(s5);
       out.push(tun.type==='L'?`channel ${ch}: open failed: connect failed: Connection refused`:`connect_to ${tun.dhost} port ${tun.dport}: failed.`);
-      return res(false,svc?`Connection refused: ${svc.name} on ${r.host} only listens on 127.0.0.1`:`Connection refused: nothing listens on ${r.host}:${tun.dport}`);
+      return res(false,svc?`Connection refused: ${svc.name} on ${nm(r.host)} only listens on 127.0.0.1`:`Connection refused: nothing listens on ${nm(r.host)}:${tun.dport}`);
     }
     steps.push(s5);
-    return res(true,`Reached ${svc.name} on ${r.host}:${tun.dport} through the tunnel`,{host:r.host,port:tun.dport});
+    return res(true,`Reached ${svc.name} on ${nm(r.host)}:${tun.dport} through the tunnel`,{host:r.host,port:tun.dport});
   }
-  const svc=SERVICES[host][port];
-  const d={kind:'direct',from,host,label:`${from} connects straight to ${a}:${port}${where}. No tunnel involved.`};
-  if(!D.route){d.failed=true;d.stopAt=.5;steps.push(d);return res(false,`${a} isn't reachable from ${from}: no direct route`);}
-  if(!svc||(svc.bind==='lo'&&D.iface!=='lo')){
+  const svc=svcAt(host,port);
+  const d={kind:'direct',from,host,net:D.net,label:`${nm(from)} connects straight to ${a}:${port}${where}. No tunnel involved.`};
+  if(!D.route){d.failed=true;d.stopAt=.5;steps.push(d);return res(false,`${a} isn't reachable from ${nm(from)}: they share no network`);}
+  if(!svc||!scopeAllows(svc.bind,D.iface)){
     d.failed=true;d.stopAt=.9;steps.push(d);
-    return res(false,svc?`Connection refused: ${svc.name} on ${host} only listens on 127.0.0.1`:`Connection refused: nothing listens on ${a}:${port}${from===host&&a==='127.0.0.1'?` (127.0.0.1 is ${from} itself)`:''}`);
+    return res(false,svc?`Connection refused: ${svc.name} on ${nm(host)} only listens on 127.0.0.1`:`Connection refused: nothing listens on ${a}:${port}${from===host&&a==='127.0.0.1'?` (127.0.0.1 is ${nm(from)} itself)`:''}`);
   }
   steps.push(d);
-  return res(true,`Reached ${svc.name} on ${host}:${port} directly, without the tunnel`,{host,port});
+  return res(true,`Reached ${svc.name} on ${nm(host)}:${port} directly, without the tunnel`,{host,port});
+}
+
+/* ---------- geometry ---------- */
+const HW=88,HH=38,NH=19;
+const netHW=n=>Math.max(66,Math.max(n.name.length*7,n.cidr.length*6.6)/2+14);
+function box(id){const h=H(id);if(h)return {x:h.x,y:h.y,hw:HW,hh:HH};const n=N(id);return {x:n.x,y:n.y,hw:netHW(n),hh:NH};}
+const ctr=id=>{const b=box(id);return {x:b.x,y:b.y};};
+// The point where a line from the box's centre toward (tx,ty) leaves the box.
+function bd(id,to){const b=box(id),dx=to.x-b.x,dy=to.y-b.y;if(!dx&&!dy)return {x:b.x,y:b.y};const s=Math.min(dx?b.hw/Math.abs(dx):Infinity,dy?b.hh/Math.abs(dy):Infinity);return {x:b.x+dx*s,y:b.y+dy*s};}
+const r1=v=>Math.round(v*10)/10;
+const poly=pts=>pts.map((p,i)=>(i?'L':'M')+r1(p.x)+' '+r1(p.y)).join(' ');
+function loopD(id){const b=box(id),t=b.y-b.hh;return `M${b.x-26} ${t} C ${b.x-50} ${t-64}, ${b.x+50} ${t-64}, ${b.x+26} ${t}`;}
+// The SSH connection runs laptop → shared network → server.
+function tube(){const S=state.session,c=ctr(S.net);return {a:bd('laptop',c),c,b:bd(S.server,c)};}
+// Listener circle: on the box edge where the SSH connection leaves; pulled inside the box when bound to 127.0.0.1.
+function listenPt(t){
+  const tb=tube(),e=t.lhost==='laptop'?tb.a:tb.b;
+  if(t.scope!=='lo') return e;
+  const C=ctr(t.lhost),dx=C.x-e.x,dy=C.y-e.y,d=Math.hypot(dx,dy)||1;
+  return {x:e.x+dx/d*12,y:e.y+dy/d*12};
+}
+function stepD(s){
+  if(s.kind==='in'){
+    const Lp=listenPt(s.t);
+    if(s.from===s.lhost){const b=box(s.from),sx=b.x-40,sy=b.y-b.hh;return `M${sx} ${sy} C ${sx} ${sy-50}, ${r1(Lp.x)} ${r1(Lp.y-50)}, ${r1(Lp.x)} ${r1(Lp.y)}`;}
+    if(s.net&&onNet(s.from,s.net)){const c=ctr(s.net);return poly([bd(s.from,c),c,bd(s.lhost,c),Lp]);}
+    return poly([bd(s.from,ctr(s.lhost)),Lp]);
+  }
+  if(s.kind==='tunnel'){
+    const tb=tube(),t=s.t,near=t.lhost==='laptop'?tb.a:tb.b,far=t.lhost==='laptop'?tb.b:tb.a;
+    return poly([listenPt(t),near,tb.c,far]);
+  }
+  if(s.kind==='out'){
+    const tb=tube(),t=s.t,start=t.far==='laptop'?tb.a:tb.b;
+    if(s.dest===t.far) return `${poly([start,ctr(t.far)])} ${loopD(t.far)}`;
+    if(s.net&&onNet(t.far,s.net)){const c=ctr(s.net);return poly([start,bd(t.far,c),c,bd(s.dest,c)]);}
+    return poly([start,bd(s.dest,ctr(t.far))]);
+  }
+  if(s.from===s.host) return loopD(s.from);
+  if(s.net&&onNet(s.from,s.net)){const c=ctr(s.net);return poly([bd(s.from,c),c,bd(s.host,c)]);}
+  return poly([bd(s.from,ctr(s.host)),bd(s.host,ctr(s.from))]);
 }
 
 /* ---------- drawing ---------- */
-const Y=150,HW=90,HH=36,TOP=Y-HH;
-const LX=415,RX=585;   // tunnel ends just outside the laptop and bastion boxes
-const openX=h=>h==='laptop'?LX:RX;
-// Listener circle: just inside the box when bound to 127.0.0.1 (host-only), just outside otherwise.
-const listenX=t=>t.lhost==='laptop'?(t.scope==='lo'?HOSTS.laptop.x+HW-11:LX):(t.scope==='lo'?HOSTS.bastion.x-HW+11:RX);
-function edge(a,b){const A=HOSTS[a],B=HOSTS[b];return A.x+(B.x>A.x?HW:-HW);}
-const arc=(sx,sy,ex,ey,peak)=>`M${sx} ${sy} C ${sx} ${peak}, ${ex} ${peak}, ${ex} ${ey}`;
-function routeD(a,b){
-  if(adj(a,b)) return `M${edge(a,b)} ${Y} L${edge(b,a)} ${Y}`;
-  return arc(HOSTS[a].x,TOP,HOSTS[b].x,TOP,18);
+let frozenVB=null;
+function fitView(){
+  if(frozenVB) return frozenVB;
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  T.networks.forEach(n=>{const w=netHW(n);x0=Math.min(x0,n.x-w);x1=Math.max(x1,n.x+w);y0=Math.min(y0,n.y-NH-20);y1=Math.max(y1,n.y+NH+30);});
+  T.hosts.forEach(h=>{x0=Math.min(x0,h.x-HW-10);x1=Math.max(x1,h.x+HW+10);y0=Math.min(y0,h.y-HH-70);y1=Math.max(y1,h.y+HH+80);});
+  x0-=14;x1+=14;y0-=6;y1+=6;
+  const w=Math.max(1000,x1-x0),hgt=Math.max(380,y1-y0);
+  const cx=(x0+x1)/2,cy=(y0+y1)/2;
+  return [r1(cx-w/2),r1(cy-hgt/2),r1(w),r1(hgt)].join(' ');
 }
-function loopD(h){const x=HOSTS[h].x;return `M${x-26} ${TOP} C ${x-50} 46, ${x+50} 46, ${x+26} ${TOP}`;}
-// From the sender to the listening circle (enters the circle from above).
-function ingressD(from,lhost,cx){
-  const cy=Y-9;
-  if(from===lhost) return arc(HOSTS[from].x,TOP,cx,cy,60);
-  if(adj(from,lhost)) return arc(edge(from,lhost),Y,cx,cy,60);
-  return arc(HOSTS[from].x,TOP,cx,cy,16);
+function hostLines(h){
+  const ips=h.ifaces.map(i=>i.ip||'NAT').join(' · ')||'no network';
+  const sv=[...(h.sshd?[`sshd :${h.sshd.port}`]:[]),...h.services.map(s=>`${s.name} ${s.bind==='lo'?'127.0.0.1':''}:${s.port}`)].join(' · ');
+  return [cut(ips,32),cut(sv,36)];
 }
-// From the tunnel exit into the exit host's box, then out of its opposite edge to the destination.
-function egressD(far,dest){
-  const F=HOSTS[far],toTunnel=far==='laptop'?1:-1;
-  const near=F.x+toTunnel*HW, opp=F.x-toTunnel*HW;
-  const into=`M${openX(far)} ${Y} L${near} ${Y}`;
-  if(dest===far) return `${into} ${loopD(far)}`;
-  const back=far==='laptop'?'bastion':'laptop';
-  if(dest===back) return `${into} M${near} ${Y+14} L${edge(dest,far)} ${Y+14}`;
-  if(adj(far,dest)) return `${into} M${opp} ${Y} L${edge(dest,far)} ${Y}`;
-  return `${into} M${opp} ${Y} L${opp-toTunnel*20} ${Y} ` + arc(opp-toTunnel*20,Y,HOSTS[dest].x,TOP,16).replace(/^M/,'L');
-}
-function stepD(s){
-  if(s.kind==='in') return ingressD(s.from,s.lhost,s.cx);
-  if(s.kind==='out') return egressD(s.far,s.dest);
-  if(s.kind==='tunnel') return s.dir==='L'?`M${s.cx} ${Y} L${RX} ${Y}`:`M${s.cx} ${Y} L${LX} ${Y}`;
-  return s.from===s.host?loopD(s.from):routeD(s.from,s.host);
-}
-
 function renderDiagram(){
-  const g=$('#static');g.textContent='';
-  const S=state.session;
-  [[205,'HOME LAN','192.168.1.0/24'],[500,'UPLINK','203.0.113.0/24'],[795,'CORP INTERNAL','10.0.0.0/24']].forEach(([x,a,b])=>{
-    el('line',{x1:x-60,y1:292,x2:x+60,y2:292,class:'link'},g);
-    tx(g,x,310,a,'zlab');tx(g,x,325,b,'zsub');
-  });
-  for(let i=0;i<ORDER.length-1;i++){
-    const a=ORDER[i],b=ORDER[i+1];
-    el('line',{x1:edge(a,b),y1:Y,x2:edge(b,a),y2:Y,class:'link'},g);
-  }
-  const ok=S&&S.conn?S.tunnels.filter(t=>t.ok):[];
+  const svg=$('#net'),g=$('#static');
+  const focused=document.activeElement&&document.activeElement.closest&&document.activeElement.closest('[data-node]');
+  const fid=focused?focused.dataset.node:null;
+  g.textContent='';
+  svg.setAttribute('viewBox',fitView());
+  svg.setAttribute('aria-label',`Network diagram: ${T.hosts.length} hosts on ${T.networks.length} networks. Drag a host or network to move it.`);
+  const S=state.session,ok=liveTunnels();
+  // links
+  T.hosts.forEach(h=>h.ifaces.forEach(i=>{
+    if(!N(i.net)) return;
+    const c=ctr(i.net),a=bd(h.id,c),b=bd(i.net,{x:h.x,y:h.y});
+    el('line',{x1:r1(a.x),y1:r1(a.y),x2:r1(b.x),y2:r1(b.y),class:'link'+(i.ip?'':' nat')},g);
+    if(!i.ip) tx(g,r1((a.x+b.x)/2+6),r1((a.y+b.y)/2),'NAT','natlab','start');
+  }));
+  // ssh connection
   if(S&&S.conn){
-    el('path',{d:'M405 150 L595 150',class:'tube-o'},g);
-    el('path',{d:'M423 150 L577 150',class:'tube-i'},g);
-    tx(g,500,128,'SSH CONNECTION','tube-lab');
-    tx(g,500,214,'opened by laptop → bastion:22','tube-sub');
+    const tb=tube(),d=poly([tb.a,tb.c,tb.b]);
+    el('path',{d,class:'tube-o'},g);el('path',{d,class:'tube-i'},g);
   }
   ok.forEach(t=>{
     const r=resolve(t.dhost,t.far);
     if(r.host){
-      const ri=reachFrom(t.far,r),svc=SERVICES[r.host][t.dport];
-      const good=ri&&svc&&!(svc.bind==='lo'&&ri!=='lo');
-      el('path',{d:egressD(t.far,r.host),class:'map '+(good?t.type:'bad')},g);
+      const ri=reach(t.far,r),svc=svcAt(r.host,t.dport);
+      const good=ri!==null&&svc&&scopeAllows(svc.bind,ri);
+      el('path',{d:stepD({kind:'out',t,dest:r.host,net:r.net}),class:'map '+(good?t.type:'bad')},g);
     }
   });
-  ORDER.forEach(id=>{
-    const H=HOSTS[id],hg=el('g',{class:'host'},g);
-    el('rect',{x:H.x-HW,y:TOP,width:HW*2,height:HH*2,rx:7},hg);
-    const nm=el('text',{x:H.x,y:Y-14,'text-anchor':'middle'},hg);
-    const a=el('tspan',{class:'nm'},nm);a.textContent=id;
-    const b=el('tspan',{class:'rl',dx:6},nm);b.textContent=H.role;
-    tx(hg,H.x,Y+5,H.ip,H.ip.length>15?'ip sm':'ip');tx(hg,H.x,Y+22,H.sv,'sv');
+  // networks
+  T.networks.forEach(n=>{
+    const w=netHW(n),ng=el('g',{class:'node netnode'+(state.sel===n.id?' sel':''),'data-node':n.id,tabindex:0,role:'button','aria-label':`Network ${n.name} ${n.cidr}`},g);
+    el('rect',{x:r1(n.x-w),y:n.y-NH,width:r1(w*2),height:NH*2,rx:NH},ng);
+    tx(ng,n.x,n.y-3,n.name,'nn');tx(ng,n.x,n.y+11,n.cidr,'nc');
   });
-  // exits (hollow) then listeners (filled circle + port numbers)
-  const listens={},row={};
-  ok.forEach(t=>{const x=listenX(t),k=t.lhost+'|'+x;const L=(listens[k]=listens[k]||{type:t.type,x,h:t.lhost,ports:[],asked:[]});L.ports.push(t.lport);if(t.asked)L.asked.push(t.asked);});
-  Object.values(listens).forEach(L=>{
-    el('circle',{cx:L.x,cy:Y,r:7,class:'listen '+L.type},g);
+  if(S&&S.conn){const c=ctr(S.net);tx(g,c.x,c.y+NH+15,`SSH laptop → ${nm(S.server)}:${H(S.server).sshd.port}`,'tube-lab');}
+  // hosts
+  T.hosts.forEach(h=>{
+    const hg=el('g',{class:'node host'+(h.id==='laptop'?' me':'')+(state.sel===h.id?' sel':''),'data-node':h.id,tabindex:0,role:'button','aria-label':`Host ${h.name}`},g);
+    el('rect',{x:h.x-HW,y:h.y-HH,width:HW*2,height:HH*2,rx:7},hg);
+    const t=el('text',{x:h.x,y:h.y-16,'text-anchor':'middle'},hg);
+    const a=el('tspan',{class:'nm'},t);a.textContent=cut(h.name,16);
+    if(h.role){const b=el('tspan',{class:'rl',dx:6},t);b.textContent=cut(h.role,14);}
+    const [ips,sv]=hostLines(h);
+    tx(hg,h.x,h.y+3,ips,ips.length>26?'ip sm':'ip');tx(hg,h.x,h.y+21,sv,'sv');
+  });
+  // listeners
+  const groups={},row={};
+  ok.forEach(t=>{const lo=t.scope==='lo',k=t.lhost+'|'+lo;const L=(groups[k]=groups[k]||{type:t.type,t,lo,h:t.lhost,ports:[],asked:[]});L.ports.push(t.lport);if(t.asked)L.asked.push(t.asked);});
+  Object.values(groups).forEach(L=>{
+    const p=listenPt(L.t);
+    el('circle',{cx:r1(p.x),cy:r1(p.y),r:7,class:'listen '+L.type},g);
     const n=row[L.h]=(row[L.h]||0)+1;
-    const lx=L.h==='laptop'?HOSTS.laptop.x+HW+4:HOSTS.bastion.x-HW-4;
-    const where=Math.abs(L.x-lx)>12?' on 127.0.0.1':'';
     const asked=L.asked.length?` · asked for ${[...new Set(L.asked)].join(', ')}`:'';
-    tx(g,lx,Y+14+n*14,L.ports.map(p=>':'+p).join(' ')+where+asked,'lport '+L.type,L.h==='laptop'?'start':'end');
+    tx(g,r1(p.x+12),r1(p.y-10-(n-1)*14),L.ports.map(x=>':'+x).join(' ')+(L.lo?' on 127.0.0.1':'')+asked,'lport '+L.type,'start');
   });
+  // badges under each host
   const per={};const add=(h,b)=>(per[h]=per[h]||[]).push(b);
   if(S&&S.conn) S.tunnels.forEach(t=>{
-    if(t.ok){add(t.lhost,{cls:t.type,text:`-${t.type}  ${BINDIP[t.scope]}:${t.lport}`});add(t.far,{cls:t.type+' exit',text:`-${t.type}  ↦ ${t.dhost}:${t.dport}`});}
+    if(t.ok){add(t.lhost,{cls:t.type,text:`-${t.type}  ${scopeIP(t.scope)}:${t.lport}`});add(t.far,{cls:t.type+' exit',text:`-${t.type}  ↦ ${t.dhost}:${t.dport}`});}
     else add(t.lhost,{cls:'fail',text:`-${t.type}  ✕ :${t.lport}`});
   });
-  Object.keys(per).forEach(h=>{
-    const H=HOSTS[h];
-    per[h].forEach((b,i)=>{
-      const y=Y+HH+8+i*24,w=Math.max(60,b.text.length*6.7+18);
+  Object.keys(per).forEach(id=>{
+    const h=H(id);
+    per[id].forEach((b,i)=>{
+      const y=h.y+HH+8+i*24,w=Math.max(60,b.text.length*6.7+18);
       const bg=el('g',{class:'bdg '+b.cls},g);
-      el('rect',{x:H.x-w/2,y,width:w,height:20,rx:3},bg);
-      tx(bg,H.x,y+14,b.text);
+      el('rect',{x:r1(h.x-w/2),y,width:r1(w),height:20,rx:3},bg);
+      tx(bg,h.x,y+14,b.text);
     });
   });
+  if(fid){const e=g.querySelector(`[data-node="${CSS.escape(fid)}"]`);if(e)e.focus({preventScroll:true});}
 }
 
-/* ---------- packet player: send all at once, or step ---------- */
+/* ---------- packet player ---------- */
 let animToken=0;
 const P={tr:null,i:0,busy:false,pk:null};
 const reduceMotion=()=>window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -747,7 +864,7 @@ function renderSteps(){
   $('#p-step').textContent=P.i>=P.tr.steps.length?'Step again ▸':P.i===0?'Step ▸':'Next step ▸';
 }
 function splitTarget(v){const i=v.lastIndexOf(':');return [v.slice(0,i),+v.slice(i+1)];}
-function newTrace(){const [a,p]=splitTarget($('#t-to').value);return connect($('#t-from').value,a,p);}
+function newTrace(){const v=$('#t-to').value;if(!v)return null;const [a,p]=splitTarget(v);return connect($('#t-from').value,a,p);}
 function loadTrace(tr){resetPlayer();P.tr=tr;renderSteps();}
 function moveAlong(path,dist,pk,token,kind){
   const place=d=>{const pt=path.getPointAtLength(d);pk.setAttribute('transform',`translate(${pt.x} ${pt.y})`);};
@@ -790,8 +907,8 @@ async function doStage(){
 function finish(){
   const tr=P.tr,layer=$('#trace');
   if(tr.ok){
-    const H=HOSTS[tr.final.host];
-    const m=el('g',{class:'endmark ok',transform:`translate(${H.x+HW} ${TOP})`},layer);
+    const b=box(tr.final.host);
+    const m=el('g',{class:'endmark ok',transform:`translate(${b.x+HW} ${b.y-HH})`},layer);
     el('circle',{r:11},m);tx(m,0,5,'✓');
     setResult(true,'✓ '+tr.reason);
   } else {
@@ -805,6 +922,7 @@ function finish(){
   if(tr.out.length){tr.out.forEach(o=>pushLog({c:'err',t:o}));renderLog();}
 }
 async function playAll(tr){
+  if(!tr) return;
   loadTrace(tr);
   const my=animToken;
   if(!P.tr.steps.length){finish();return;}
@@ -817,7 +935,7 @@ async function playAll(tr){
 }
 function stepOnce(){
   if(P.busy) return;
-  if(!P.tr||P.i>=P.tr.steps.length) loadTrace(newTrace());
+  if(!P.tr||P.i>=P.tr.steps.length){const tr=newTrace();if(!tr)return;loadTrace(tr);}
   doStage();
 }
 
@@ -831,49 +949,51 @@ function renderLog(){
 }
 
 /* ---------- state ---------- */
-const state={cfg:{gp:'no',atf:'yes'},session:null,mode:'sandbox',ch:0};
+const state={mode:'sandbox',ch:0,session:null,sel:null,cfgHost:null,sandbox:null};
 function runCommand(cmd,quiet){
   cmd=cmd.trim();
-  resetPlayer();
-  chanNo=2;
-  state.session=cmd?simulate(cmd,state.cfg):null;
+  resetPlayer();chanNo=2;
+  state.session=cmd?simulate(cmd):null;
+  if(state.session&&state.session.conn) state.cfgHost=state.session.server;
   if(state.session&&!quiet) state.session.log.forEach(pushLog);
   renderLog();renderAll();pickDefaultTarget();
 }
-function renderAll(){renderDiagram();renderTargets();renderSandbox();}
+// The network changed: rebuild the same ssh session against it without new terminal output.
+function resim(){
+  resetPlayer();chanNo=2;
+  if(state.session&&state.session.cmd) state.session=simulate(state.session.cmd);
+  renderAll();
+}
+function renderAll(){renderDiagram();renderTargets();renderForwards();renderCfg();}
 
-// Every non-loopback address each host owns.
-const HOST_ADDRS={coworker:['192.168.1.30'],laptop:['192.168.1.20'],bastion:['203.0.113.10','10.0.0.1'],intranet:['10.0.0.20']};
-const liveTunnels=()=>{const S=state.session;return S&&S.conn?S.tunnels.filter(t=>t.ok):[];};
 // What a sender would find at addr:port, for the "Sent to" labels. 127.0.0.1 is read from the sender's side.
 function targetLabel(from,v){
   const [a,p]=splitTarget(v),D=destOf(from,a);
   if(!D.host) return `${a}:${p}  unknown address`;
-  const who=a==='127.0.0.1'?`${from} itself`:D.host;
+  const who=a==='127.0.0.1'?`${nm(from)} itself`:nm(D.host);
   const tun=liveTunnels().find(t=>t.lhost===D.host&&t.lport===p);
-  const svc=SERVICES[D.host][p];
-  const what=tun?`-${tun.type} listener${scopeAllows(tun.scope,D.iface)?'':` (bound to ${BINDIP[tun.scope]})`}`
+  const svc=svcAt(D.host,p);
+  const what=tun?`-${tun.type} listener${scopeAllows(tun.scope,D.iface)?'':` (bound to ${scopeIP(tun.scope)})`}`
     :svc?svc.name+(svc.bind==='lo'&&D.iface!=='lo'?' (127.0.0.1 only)':''):'nothing listening';
   return `${a}:${p}  ${who}, ${what}`;
 }
 function targets(){
-  const tun=[],seen=new Set(),add=(list,v)=>{if(!seen.has(v)){seen.add(v);list.push(v);}};
-  // Each tunnel listener is offered on loopback and on each of the host's own addresses,
-  // so students can see which ones a given bind address actually answers on.
-  liveTunnels().forEach(t=>['127.0.0.1',...HOST_ADDRS[t.lhost]].forEach(a=>add(tun,`${a}:${t.lport}`)));
-  const svc=[];
-  ['10.0.0.20:80','10.0.0.20:5432','127.0.0.1:3000','127.0.0.1:9090','192.168.1.30:8000','203.0.113.10:22'].forEach(v=>add(svc,v));
+  const tun=[],svc=[],seen=new Set(),add=(list,v)=>{if(!seen.has(v)){seen.add(v);list.push(v);}};
+  liveTunnels().forEach(t=>['127.0.0.1',...hostIPs(t.lhost)].forEach(a=>add(tun,`${a}:${t.lport}`)));
+  T.hosts.forEach(h=>Object.values(services(h.id)).forEach(s=>{
+    if(s.bind==='lo') add(svc,`127.0.0.1:${s.port}`); else hostIPs(h.id).forEach(ip=>add(svc,`${ip}:${s.port}`));
+  }));
   return [['Tunnel listeners',tun],['Services, direct',svc]].filter(g=>g[1].length);
 }
 function renderTargets(){
-  const from=$('#t-from'),to=$('#t-to'),fv=from.value||'laptop',tv=to.value;
-  from.innerHTML=ORDER.map(h=>`<option value="${h}">${h}</option>`).join('');
+  const from=$('#t-from'),to=$('#t-to'),tv=to.value;
+  let fv=from.value;if(!H(fv)) fv='laptop';
+  from.innerHTML=T.hosts.map(h=>`<option value="${esc(h.id)}">${esc(h.name)}</option>`).join('');
   from.value=fv;
   const opt=v=>`<option value="${esc(v)}">${esc(targetLabel(fv,v))}</option>`;
   to.innerHTML=targets().map(([g,vs])=>`<optgroup label="${g}">${vs.map(opt).join('')}</optgroup>`).join('');
   if(tv) setTarget(tv);
 }
-// Select addr:port in "Sent to", adding it if the list doesn't already offer it.
 function setTarget(v){
   const to=$('#t-to');
   if(![...to.options].some(o=>o.value===v)){
@@ -882,29 +1002,30 @@ function setTarget(v){
   to.value=v;
 }
 function setSender(h){$('#t-from').value=h;renderTargets();}
-// The address a sender would use for a listener: its own loopback when the listener is loopback-only,
-// otherwise the address the listener is bound to (or the interface facing the sender).
+// The address a sender would use for a listener.
 function defaultAddr(from,t){
-  if(from!==t.lhost) return natAddr(from,t.lhost);
-  if(t.scope==='lo') return '127.0.0.1';
-  if(t.scope==='all') return t.type==='R'?'203.0.113.10':'127.0.0.1';
-  return BINDIP[t.scope];
+  if(from===t.lhost){
+    if(t.scope==='lo') return '127.0.0.1';
+    if(t.scope==='all') return t.type==='R'?(hostIPs(t.lhost)[0]||'127.0.0.1'):'127.0.0.1';
+    return t.scope;
+  }
+  const c=H(t.lhost).ifaces.filter(i=>i.ip&&onNet(from,i.net)).map(i=>i.ip);
+  return c.find(ip=>scopeAllows(t.scope,ip))||c[0]||natAddr(from,t.lhost);
+}
+const canUse=(h,t)=>h===t.lhost||H(t.lhost).ifaces.some(i=>i.ip&&onNet(h,i.net)&&scopeAllows(t.scope,i.ip));
+// A listener bound beyond loopback is meant for other hosts, so send from an outside neighbour.
+function defaultSender(t){
+  const others=T.hosts.map(h=>h.id).filter(h=>h!==t.lhost);
+  const order=[...others.filter(h=>h!=='laptop'&&h!==state.session.server),...others];
+  if(t.asked) return order.find(h=>H(t.lhost).ifaces.some(i=>i.ip&&onNet(h,i.net)))||t.lhost;
+  if(t.scope==='lo') return t.lhost;
+  return order.find(h=>canUse(h,t))||t.lhost;
 }
 function pickDefaultTarget(){
   const t=liveTunnels()[0];
   if(t){const f=defaultSender(t);setSender(f);setTarget(`${defaultAddr(f,t)}:${t.lport}`);}
 }
-// A listener bound beyond loopback is meant for other hosts, so send from the outside neighbour:
-// coworker for -L (laptop side), intranet for -R (bastion side). Fall back to any host that can reach it.
-function defaultSender(t){
-  // sshd overrode a wider bind: send from the outside host anyway, so students see it get refused.
-  if(t.asked) return t.type==='L'?'coworker':'intranet';
-  if(t.scope==='lo') return t.lhost;
-  const prefer=t.type==='L'?['coworker','bastion']:['intranet','laptop'];
-  for(const h of prefer){const i=netReach(h,t.lhost);if(i&&scopeAllows(t.scope,i)) return h;}
-  return t.lhost;
-}
-function renderSandbox(){
+function renderForwards(){
   const box=$('#listeners'),S=state.session;
   if(!S||!S.conn||!S.tunnels.length){
     box.innerHTML=`<p class="empty">${S&&S.exited?'ssh exited, so no forwards are open.':S&&!S.conn?'No SSH connection.':'No -L or -R forwards yet. Run an ssh command in the terminal.'}</p>`;
@@ -912,13 +1033,316 @@ function renderSandbox(){
   }
   box.innerHTML=S.tunnels.map(t=>{
     if(!t.ok) return `<div class="lst fail"><span class="head">-${t.type} ${esc(t.raw)}</span><span class="why">${esc(t.why)}</span></div>`;
-    const who=ORDER.filter(h=>{if(h===t.lhost) return true;const i=netReach(h,t.lhost);return i&&scopeAllows(t.scope,i);});
+    const who=T.hosts.map(h=>h.id).filter(h=>canUse(h,t));
     return `<div class="lst ${t.type}"><span class="head">-${t.type} ${esc(t.raw)}</span>
-      <span class="note">listens on ${t.lhost} ${BINDIP[t.scope]}:${t.lport} · ${esc(t.dhost)} is interpreted on the ${t.far}</span>
+      <span class="note">listens on ${esc(nm(t.lhost))} ${scopeIP(t.scope)}:${t.lport} · ${esc(t.dhost)} is interpreted on ${esc(nm(t.far))}</span>
       ${t.note?`<span class="note">${esc(t.note)}</span>`:''}
-      <div class="chips"><small>send a packet from:</small>${who.map(h=>`<button class="chip" type="button" data-from="${h}" data-to="${defaultAddr(h,t)}:${t.lport}" title="${h} → ${defaultAddr(h,t)}:${t.lport}">${h}</button>`).join('')}</div></div>`;
+      <div class="chips"><small>send a packet from:</small>${who.map(h=>`<button class="chip" type="button" data-from="${esc(h)}" data-to="${esc(defaultAddr(h,t))}:${t.lport}">${esc(nm(h))}</button>`).join('')}</div></div>`;
   }).join('');
 }
+
+/* ---------- sshd_config card ---------- */
+function renderCfg(){
+  const list=T.hosts.filter(h=>h.sshd);
+  if(!list.some(h=>h.id===state.cfgHost)) state.cfgHost=list.length?list[0].id:null;
+  const pick=$('#cfg-host'),h=state.cfgHost&&H(state.cfgHost);
+  pick.innerHTML=list.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+  $('#cfg-pick-row').hidden=list.length<2;
+  $('#cfg-rows').hidden=!h;
+  if(!h){$('#cfg-path').textContent=state.mode==='sandbox'?'No host runs an SSH server yet. Select a host and turn on "Runs an SSH server".':'No SSH server in this layout.';return;}
+  pick.value=h.id;
+  $('#cfg-path').textContent=`# /etc/ssh/sshd_config on ${h.name}${hostIPs(h.id).length?` (${hostIPs(h.id).join(', ')})`:''}`;
+  $('#gp').value=h.sshd.gp;$('#atf').value=h.sshd.atf;
+}
+function cfgChanged(){
+  const h=H(state.cfgHost);if(!h||!h.sshd) return;
+  h.sshd.gp=$('#gp').value;h.sshd.atf=$('#atf').value;
+  saveSandbox();
+  pushLog({c:'dim',t:`# ${h.name}: GatewayPorts ${h.sshd.gp}, AllowTcpForwarding ${h.sshd.atf} (sshd reloaded)`});
+  if(state.session&&state.session.cmd&&state.session.conn&&state.session.server===h.id){pushLog({c:'dim',t:'# reconnecting with the same command'});runCommand(state.session.cmd);}
+  else {renderLog();resim();}
+}
+
+/* ---------- saving, export, import ---------- */
+const STORE='sshlab-sandbox';
+function saveSandbox(){if(state.mode!=='sandbox')return;try{localStorage.setItem(STORE,JSON.stringify(exportObj()));}catch(e){}}
+function exportObj(){return {format:'ssh-tunnel-lab',version:1,networks:T.networks,hosts:T.hosts};}
+const GP=['no','yes','clientspecified'],ATF=['yes','local','remote','no'];
+// Turn an imported object into a safe topology, or throw a message for the student.
+function sanitize(o){
+  if(!o||typeof o!=='object'||Array.isArray(o)) throw 'This isn\'t a network map. Export one from the sandbox to see the format.';
+  if(o.format&&o.format!=='ssh-tunnel-lab') throw `This file is a "${String(o.format).slice(0,40)}" file, not an SSH Tunnel Lab map.`;
+  const nets=Array.isArray(o.networks)?o.networks:[],hosts=o.hosts;
+  if(!Array.isArray(hosts)) throw 'The map has no "hosts" list.';
+  if(nets.length>40||hosts.length>40) throw 'Maps can have at most 40 hosts and 40 networks.';
+  const str=(v,n)=>typeof v==='string'?v.trim().slice(0,n):'';
+  const num=(v,d)=>Number.isFinite(+v)&&v!==null&&v!==''?Math.max(-3000,Math.min(5000,Math.round(+v))):d;
+  const ids=new Set(['laptop']);
+  const fresh=(s,p)=>{const id=typeof s==='string'&&/^[A-Za-z0-9_-]{1,32}$/.test(s)&&!ids.has(s)?s:p+uid();ids.add(id);return id;};
+  const netMap={},networks=[];
+  nets.forEach((n,i)=>{
+    if(!n||typeof n!=='object') throw `Network ${i+1} isn't an object.`;
+    const p=cidrParts(n.cidr);if(!p) throw `Network ${i+1} (${str(n.name,32)||'unnamed'}) has an invalid subnet: ${str(String(n.cidr),40)}. Use a form like 10.1.0.0/24.`;
+    const id=fresh(n.id,'n');netMap[n.id]=id;
+    networks.push({id,name:str(n.name,32)||`Network ${i+1}`,cidr:normCidr(p),x:num(n.x,200+i*220),y:num(n.y,70)});
+  });
+  let li=hosts.findIndex(h=>h&&h.id==='laptop');
+  if(li<0) li=hosts.findIndex(h=>h&&typeof h.name==='string'&&h.name.toLowerCase()==='laptop');
+  const names=new Set(),out=[];
+  hosts.forEach((h,i)=>{
+    if(!h||typeof h!=='object') throw `Host ${i+1} isn't an object.`;
+    const me=i===li,id=me?'laptop':fresh(h.id,'h');
+    let name=me?'laptop':(str(h.name,24).replace(/[^A-Za-z0-9.-]/g,'-')||'host');
+    if(!me){let k=2,base=name;while(names.has(name.toLowerCase())||name.toLowerCase()==='laptop')name=`${base}-${k++}`;}
+    names.add(name.toLowerCase());
+    const seenNet=new Set(),ifaces=[];
+    (Array.isArray(h.ifaces)?h.ifaces:[]).slice(0,8).forEach(f=>{
+      if(!f||!(f.net in netMap)||seenNet.has(f.net)) return;
+      seenNet.add(f.net);
+      const ip=str(f.ip,15);
+      ifaces.push({net:netMap[f.net],ip:usableIP(ip)?ip:''});
+    });
+    const seenPort=new Set(),svcs=[];
+    (Array.isArray(h.services)?h.services:[]).slice(0,10).forEach(s=>{
+      const port=s&&toPort(s.port);if(!port||seenPort.has(port))return;seenPort.add(port);
+      svcs.push({port,name:str(s.name,24)||'service',bind:s.bind==='lo'||s.bind==='127.0.0.1'?'lo':'all'});
+    });
+    let sshd=null;
+    if(!me&&h.sshd&&typeof h.sshd==='object') sshd={port:toPort(h.sshd.port)||22,gp:GP.includes(h.sshd.gp)?h.sshd.gp:'no',atf:ATF.includes(h.sshd.atf)?h.sshd.atf:'yes'};
+    out.push({id,name,role:str(h.role,16),x:num(h.x,120+i*220),y:num(h.y,230),ifaces,services:svcs,sshd});
+  });
+  if(li<0) out.unshift({id:'laptop',name:'laptop',role:'student',x:120,y:230,ifaces:[],services:[{port:3000,name:'dev app',bind:'lo'}],sshd:null});
+  return {networks,hosts:out};
+}
+function loadSandbox(){
+  try{const raw=localStorage.getItem(STORE);if(raw) return sanitize(JSON.parse(raw));}catch(e){}
+  return clone(LAYOUTS.classic.topo);
+}
+function replaceSandbox(topo,what){
+  state.sandbox=topo;T=topo;state.sel=null;
+  saveSandbox();
+  pushLog({c:'dim',t:`# ${what}: ${topo.hosts.length} hosts, ${topo.networks.length} networks`});
+  $('#cmd').value='';
+  runCommand('');renderInspector();
+}
+const dlg=$('#io-dlg');let ioMode='export';
+function openIO(mode){
+  ioMode=mode;
+  $('#io-msg').textContent='';
+  $('#io-title').textContent=mode==='export'?'Export network map':'Import network map';
+  $('#io-help').textContent=mode==='export'
+    ?'Copy this JSON and keep it, or send it to someone else. Import it later to get the same network back, positions and sshd_config included.'
+    :'Paste an exported map, or choose a .json file. It replaces your current sandbox network.';
+  $('#io-text').readOnly=mode==='export';
+  $('#io-text').value=mode==='export'?JSON.stringify(exportObj(),null,2):'';
+  $('#io-file-wrap').hidden=mode==='export';
+  $('#io-file').value='';
+  $('#io-main').textContent=mode==='export'?'Copy JSON':'Import';
+  // Downloads only work when the page isn't framed (GitHub Pages); framed viewers copy instead.
+  $('#io-dl').hidden=mode!=='export'||window.self!==window.top;
+  if(dlg.showModal) dlg.showModal(); else dlg.setAttribute('open','');
+  if(mode==='import') $('#io-text').focus();
+}
+function closeIO(){if(dlg.close)dlg.close();else dlg.removeAttribute('open');}
+$('#io-close').addEventListener('click',closeIO);
+$('#io-main').addEventListener('click',()=>{
+  const ta=$('#io-text');
+  if(ioMode==='export'){
+    const done=()=>{$('#io-msg').textContent='';$('#io-main').textContent='Copied';setTimeout(()=>$('#io-main').textContent='Copy JSON',1500);};
+    const fallback=()=>{ta.focus();ta.select();$('#io-msg').textContent='Copying is blocked here. The text is selected: press Ctrl+C or ⌘C.';};
+    try{navigator.clipboard.writeText(ta.value).then(done,fallback);}catch(e){fallback();}
+    return;
+  }
+  let o;
+  try{o=JSON.parse(ta.value);}catch(e){$('#io-msg').textContent='That isn\'t valid JSON. Paste the whole exported map, from the first { to the last }.';return;}
+  try{replaceSandbox(sanitize(o),'imported map');closeIO();}catch(err){$('#io-msg').textContent=typeof err==='string'?err:'This map couldn\'t be read.';}
+});
+$('#io-dl').addEventListener('click',()=>{
+  const b=new Blob([$('#io-text').value],{type:'application/json'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(b);a.download='network-map.json';document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+});
+$('#io-file').addEventListener('change',e=>{
+  const f=e.target.files&&e.target.files[0];if(!f) return;
+  if(f.size>500000){$('#io-msg').textContent='That file is too large to be a network map.';return;}
+  const r=new FileReader();r.onload=()=>{$('#io-text').value=String(r.result);$('#io-msg').textContent='';};r.readAsText(f);
+});
+
+/* ---------- editing ---------- */
+const snap=v=>Math.round(v/10)*10;
+function topoChanged(){saveSandbox();resim();}
+function select(id){
+  if(state.sel===id) return;
+  state.sel=id;renderDiagram();renderInspector();
+}
+function spotFree(x,y){return !T.hosts.some(h=>Math.abs(h.x-x)<190&&Math.abs(h.y-y)<100)&&!T.networks.some(n=>Math.abs(n.x-x)<170&&Math.abs(n.y-y)<60);}
+function findSpot(x,y){for(let k=0;k<60;k++){const cx=x+(k%6)*200,cy=y+Math.floor(k/6)*130;if(spotFree(cx,cy))return {x:cx,y:cy};}return {x,y:y+200};}
+function addHost(netId){
+  if(T.hosts.length>=40) return;
+  let k=1;while(T.hosts.some(h=>h.name==='server'+k))k++;
+  const n=netId&&N(netId);
+  const p=n?findSpot(n.x,n.y+170):findSpot(H('laptop').x+220,H('laptop').y);
+  const h={id:'h'+uid(),name:'server'+k,role:'server',x:p.x,y:p.y,ifaces:[],services:[{port:80,name:'web',bind:'all'}],sshd:null};
+  T.hosts.push(h);
+  if(n) h.ifaces.push({net:n.id,ip:nextIP(n.id)});
+  state.sel=h.id;topoChanged();renderInspector();
+}
+function addNet(){
+  if(T.networks.length>40) return;
+  let k=1;const used=new Set(T.networks.map(n=>n.cidr));
+  while(used.has(`10.${k}.0.0/24`))k++;
+  let j=1;while(T.networks.some(n=>n.name==='Network '+j))j++;
+  const y=T.networks.length?Math.min(...T.networks.map(n=>n.y)):70;
+  const p=findSpot(T.networks.length?Math.max(...T.networks.map(n=>n.x))+220:H('laptop').x,y);
+  const n={id:'n'+uid(),name:'Network '+j,cidr:`10.${k}.0.0/24`,x:p.x,y:p.y};
+  T.networks.push(n);state.sel=n.id;topoChanged();renderInspector();
+}
+function deleteSel(){
+  const id=state.sel;if(!id||id==='laptop') return;
+  if(H(id)) T.hosts=T.hosts.filter(h=>h.id!==id);
+  else {T.networks=T.networks.filter(n=>n.id!==id);T.hosts.forEach(h=>h.ifaces=h.ifaces.filter(i=>i.net!==id));}
+  if(state.mode==='sandbox') state.sandbox=T;
+  state.sel=null;topoChanged();renderInspector();
+}
+function ipWarn(h,f){
+  if(!f.ip) return 'No address: outbound only, like a laptop behind a home router.';
+  const n=N(f.net);
+  if(n&&!inCidr(f.ip,n.cidr)) return `${f.ip} is outside ${n.cidr}.`;
+  const dup=T.hosts.find(x=>x!==h&&x.ifaces.some(i=>i.ip===f.ip));
+  return dup?`${dup.name} also uses ${f.ip}.`:'';
+}
+let inspMsg='';
+function renderInspector(){
+  if(state.mode!=='sandbox') return;
+  const box=$('#insp'),title=$('#insp-title'),id=state.sel,h=id&&H(id),n=id&&!h&&N(id);
+  $('#del-node').disabled=!((h&&id!=='laptop')||n);
+  const msg=inspMsg?`<p class="msg" role="alert">${esc(inspMsg)}</p>`:'';inspMsg='';
+  if(!h&&!n){
+    title.textContent='Edit the network';
+    box.innerHTML=`${msg}<p class="hintline">Click a host or network to edit it, or drag it to move it. Use <b>+ Host</b> and <b>+ Network</b> above the diagram to add more.</p><p class="me-note">The laptop is your station. It's always here, and the terminal runs on it.</p>`;
+    return;
+  }
+  if(n){
+    title.textContent='Network';
+    const members=T.hosts.filter(x=>onNet(x.id,n.id));
+    box.innerHTML=`${msg}<label class="field">Name<input class="txt" id="f-nname" data-f="nname" value="${esc(n.name)}" maxlength="32"></label>
+      <label class="field">Subnet<input class="txt" id="f-cidr" data-f="cidr" value="${esc(n.cidr)}" spellcheck="false"></label>
+      <p class="hintline">${members.length?'On this network: '+members.map(m=>esc(m.name)).join(', '):'No hosts yet.'}</p>
+      <div class="btnrow"><button class="tool" id="f-addhere" data-act="add-host-here" type="button">+ Host on this network</button><button class="tool danger" id="f-delnet" data-act="del" type="button">Delete network</button></div>`;
+    return;
+  }
+  const me=h.id==='laptop';
+  title.textContent=me?'Your laptop':'Host';
+  const netOpts=sel=>T.networks.map(x=>`<option value="${esc(x.id)}"${x.id===sel?' selected':''}>${esc(x.name)} · ${esc(x.cidr)}</option>`).join('');
+  const ifs=h.ifaces.map((f,k)=>{const w=ipWarn(h,f);return `<div class="irow"><select id="if-net-${k}" data-f="ifnet" data-i="${k}" aria-label="Network">${netOpts(f.net)}</select><input class="txt" id="if-ip-${k}" data-f="ifip" data-i="${k}" value="${esc(f.ip)}" placeholder="no address (NAT)" aria-label="IP address" spellcheck="false"><button class="rm" id="if-rm-${k}" type="button" data-act="rm-if" data-i="${k}" aria-label="Remove this interface">×</button></div>${w?`<p class="warn">${esc(w)}</p>`:''}`;}).join('');
+  const svs=h.services.map((s,k)=>`<div class="srow"><input class="txt" id="sv-port-${k}" data-f="svport" data-i="${k}" value="${s.port}" inputmode="numeric" aria-label="Port"><input class="txt" id="sv-name-${k}" data-f="svname" data-i="${k}" value="${esc(s.name)}" maxlength="24" aria-label="Service name"><select id="sv-bind-${k}" data-f="svbind" data-i="${k}" aria-label="Listens on"><option value="all"${s.bind==='all'?' selected':''}>0.0.0.0</option><option value="lo"${s.bind==='lo'?' selected':''}>127.0.0.1</option></select><button class="rm" id="sv-rm-${k}" type="button" data-act="rm-svc" data-i="${k}" aria-label="Remove this service">×</button></div>`).join('');
+  box.innerHTML=`${msg}
+    ${me?'<p class="me-note">Your station. The terminal runs here, so it can\'t be deleted or renamed.</p>':''}
+    <label class="field">Name<input class="txt" id="f-name" data-f="name" value="${esc(h.name)}" maxlength="24" ${me?'readonly':''}></label>
+    <label class="field">Label<input class="txt" id="f-role" data-f="role" value="${esc(h.role)}" maxlength="16"></label>
+    ${me?'':`<label class="chk"><input type="checkbox" id="f-sshd" data-f="sshd" ${h.sshd?'checked':''}> Runs an SSH server</label>
+    ${h.sshd?`<label class="field">SSH port<input class="txt" id="f-sshport" data-f="sshport" value="${h.sshd.port}" inputmode="numeric"></label>`:''}`}
+    <h3>Interfaces</h3>
+    ${ifs||'<p class="hintline">Not on any network yet.</p>'}
+    <div class="btnrow"><button class="tool" id="f-addif" type="button" data-act="add-if" ${T.networks.some(x=>!onNet(h.id,x.id))?'':'disabled'}>+ Interface</button></div>
+    <h3>Services</h3>
+    ${svs||'<p class="hintline">Nothing listening.</p>'}
+    <div class="btnrow"><button class="tool" id="f-addsvc" type="button" data-act="add-svc">+ Service</button>${me?'':'<button class="tool danger" id="f-delhost" type="button" data-act="del">Delete host</button>'}</div>`;
+}
+function editField(f,inp){
+  const h=H(state.sel),n=N(state.sel),i=+inp.dataset.i,v=inp.type==='checkbox'?inp.checked:inp.value.trim();
+  switch(f){
+    case 'name':{
+      let s=v.replace(/[^A-Za-z0-9.-]/g,'-').slice(0,24);
+      if(!s) inspMsg='A host needs a name.';
+      else if(s.toLowerCase()==='laptop'||T.hosts.some(x=>x!==h&&x.name.toLowerCase()===s.toLowerCase())) inspMsg=`Another host is already called ${s}.`;
+      else h.name=s;
+      break;}
+    case 'role': h.role=v.slice(0,16);break;
+    case 'sshd': h.sshd=v?{port:22,gp:'no',atf:'yes'}:null;break;
+    case 'sshport':{const p=toPort(v);if(!p)inspMsg='Ports run from 1 to 65535.';else if(h.services.some(s=>s.port===p))inspMsg=`Port ${p} is already used by a service on ${h.name}.`;else h.sshd.port=p;break;}
+    case 'ifnet':{
+      if(h.ifaces.some((x,k)=>k!==i&&x.net===v)){inspMsg=`${h.name} is already on that network.`;break;}
+      const f2=h.ifaces[i];f2.net=v;if(f2.ip&&!inCidr(f2.ip,N(v).cidr))f2.ip=nextIP(v);break;}
+    case 'ifip':
+      if(v===''||usableIP(v)) h.ifaces[i].ip=v;
+      else inspMsg=`${v} isn't a usable IPv4 address. Leave it empty for an outbound-only (NAT) link.`;
+      break;
+    case 'svport':{const p=toPort(v);if(!p)inspMsg='Ports run from 1 to 65535.';else if(h.services.some((s,k)=>k!==i&&s.port===p)||(h.sshd&&h.sshd.port===p))inspMsg=`Something on ${h.name} already listens on ${p}.`;else h.services[i].port=p;break;}
+    case 'svname': h.services[i].name=(v||'service').slice(0,24);break;
+    case 'svbind': h.services[i].bind=v==='lo'?'lo':'all';break;
+    case 'nname': n.name=(v||'Network').slice(0,32);break;
+    case 'cidr':{const p=cidrParts(v);if(p)n.cidr=normCidr(p);else inspMsg='Use a subnet like 10.1.0.0/24, with a prefix from /8 to /30.';break;}
+  }
+  topoChanged();
+  // Rebuild the form after focus has moved, then put focus back where the student went.
+  setTimeout(()=>{const a=document.activeElement&&document.activeElement.id;renderInspector();if(a){const e=document.getElementById(a);if(e)e.focus();}},0);
+}
+function act(a,i){
+  const h=H(state.sel);
+  if(a==='add-if'){const free=T.networks.find(x=>!onNet(h.id,x.id));if(free)h.ifaces.push({net:free.id,ip:nextIP(free.id)});}
+  else if(a==='rm-if') h.ifaces.splice(i,1);
+  else if(a==='add-svc'){if(h.services.length>=10)return;let p=8080;while(h.services.some(s=>s.port===p)||(h.sshd&&h.sshd.port===p))p++;h.services.push({port:p,name:'web',bind:'all'});}
+  else if(a==='rm-svc') h.services.splice(i,1);
+  else if(a==='del') return deleteSel();
+  else if(a==='add-host-here') return addHost(state.sel);
+  topoChanged();renderInspector();
+}
+$('#insp').addEventListener('change',e=>{const f=e.target.dataset&&e.target.dataset.f;if(f)editField(f,e.target);});
+$('#insp').addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(b&&!b.disabled)act(b.dataset.act,+b.dataset.i);});
+$('#add-host').addEventListener('click',()=>addHost(N(state.sel)?state.sel:null));
+$('#add-net').addEventListener('click',addNet);
+$('#del-node').addEventListener('click',deleteSel);
+
+/* ---------- dragging and keyboard moves ---------- */
+const svg=$('#net');let drag=null,dragRAF=0;
+function svgPt(e){const m=svg.getScreenCTM();if(!m)return {x:0,y:0};const p=new DOMPoint(e.clientX,e.clientY).matrixTransform(m.inverse());return {x:p.x,y:p.y};}
+const nodeObj=id=>H(id)||N(id);
+svg.addEventListener('pointerdown',e=>{
+  if(e.button!==0) return;
+  const g=e.target.closest('[data-node]');
+  if(!g){if(state.mode==='sandbox')select(null);return;}
+  const o=nodeObj(g.dataset.node),p=svgPt(e);
+  drag={id:g.dataset.node,ox:o.x,oy:o.y,px:p.x,py:p.y,moved:false};
+  svg.setPointerCapture(e.pointerId);e.preventDefault();
+});
+svg.addEventListener('pointermove',e=>{
+  if(!drag) return;
+  const p=svgPt(e),dx=p.x-drag.px,dy=p.y-drag.py;
+  if(!drag.moved){if(Math.hypot(dx,dy)<4)return;drag.moved=true;resetPlayer();frozenVB=svg.getAttribute('viewBox');svg.classList.add('dragging');}
+  const o=nodeObj(drag.id);o.x=snap(drag.ox+dx);o.y=snap(drag.oy+dy);
+  if(!dragRAF) dragRAF=requestAnimationFrame(()=>{dragRAF=0;renderDiagram();});
+});
+function endDrag(){
+  if(!drag) return;
+  const d=drag;drag=null;svg.classList.remove('dragging');
+  if(d.moved){frozenVB=null;saveSandbox();renderDiagram();}
+  else if(state.mode==='sandbox') select(d.id);
+}
+svg.addEventListener('pointerup',endDrag);
+svg.addEventListener('pointercancel',endDrag);
+svg.addEventListener('keydown',e=>{
+  const g=e.target.closest&&e.target.closest('[data-node]');if(!g) return;
+  const id=g.dataset.node,o=nodeObj(id),k=e.shiftKey?50:10;
+  const mv={ArrowLeft:[-k,0],ArrowRight:[k,0],ArrowUp:[0,-k],ArrowDown:[0,k]}[e.key];
+  if(mv){e.preventDefault();resetPlayer();o.x+=mv[0];o.y+=mv[1];saveSandbox();renderDiagram();return;}
+  if(e.key==='Enter'||e.key===' '){e.preventDefault();if(state.mode==='sandbox')select(id);return;}
+  if((e.key==='Delete'||e.key==='Backspace')&&state.mode==='sandbox'){e.preventDefault();state.sel=id;deleteSel();}
+});
+
+/* ---------- start-from layouts ---------- */
+let pending=null;
+const pick=$('#layout-pick');
+pick.innerHTML='<option value="">Start from…</option>'+Object.entries(LAYOUTS).map(([k,l])=>`<option value="${k}">${esc(l.name)}</option>`).join('');
+pick.addEventListener('change',()=>{
+  const k=pick.value;pick.value='';if(!k) return;
+  pending=k;$('#confirm-msg').textContent=`Replace your sandbox network with "${LAYOUTS[k].name}"? Export first if you want to keep it.`;
+  $('#confirm').hidden=false;$('#confirm-yes').focus();
+});
+$('#confirm-yes').addEventListener('click',()=>{$('#confirm').hidden=true;if(pending)replaceSandbox(clone(LAYOUTS[pending].topo),`loaded ${LAYOUTS[pending].name}`);pending=null;});
+$('#confirm-no').addEventListener('click',()=>{$('#confirm').hidden=true;pending=null;});
+$('#export-btn').addEventListener('click',()=>openIO('export'));
+$('#import-btn').addEventListener('click',()=>openIO('import'));
 
 const EXAMPLES=[
   ['-L: intranet wiki on laptop:8080','ssh alex@203.0.113.10 -L 8080:10.0.0.20:80'],
@@ -933,57 +1357,76 @@ const EXAMPLES=[
 ];
 
 /* ---------- challenges ---------- */
+// tests: from host → the address that host would naturally use for `host` (or t.addr), expecting a service or a failure.
 const CH=[
-  {t:'L',title:'Wiki on localhost',goal:'From the laptop, <code>http://127.0.0.1:8080</code> should open the wiki on the intranet server (10.0.0.20:80).',
+  {layout:'classic',t:'L',title:'Wiki on localhost',goal:'From the laptop, <code>http://127.0.0.1:8080</code> should open the wiki on the intranet server (10.0.0.20:80).',
    tests:[{from:'laptop',host:'laptop',port:8080,e:{host:'intranet',port:80}}],
    hint:'The listener belongs on the laptop. Only the bastion can reach the intranet.',
    sol:'<code>ssh alex@203.0.113.10 -L 8080:10.0.0.20:80</code>',solCmd:'ssh alex@203.0.113.10 -L 8080:10.0.0.20:80'},
-  {t:'L',title:'Bastion admin panel',goal:'The bastion\'s admin panel listens only on the bastion\'s own 127.0.0.1:9090. Reach it from laptop port 9090.',
+  {layout:'classic',t:'L',title:'Bastion admin panel',goal:'The bastion\'s admin panel listens only on the bastion\'s own 127.0.0.1:9090. Reach it from laptop port 9090.',
    tests:[{from:'laptop',host:'laptop',port:9090,e:{host:'bastion',port:9090}}],
    hint:'With -L, the SSH server looks up the destination host. So 127.0.0.1 means the bastion.',
    sol:'<code>ssh alex@203.0.113.10 -L 9090:127.0.0.1:9090</code>',solCmd:'ssh alex@203.0.113.10 -L 9090:127.0.0.1:9090'},
-  {t:'L',title:'Share with a coworker',goal:'Your coworker (192.168.1.30) needs the database. Let them connect to <code>192.168.1.20:5432</code> on your laptop.',
+  {layout:'classic',t:'L',title:'Share with a coworker',goal:'Your coworker (192.168.1.30) needs the database. Let them connect to <code>192.168.1.20:5432</code> on your laptop.',
    tests:[{from:'coworker',host:'laptop',port:5432,e:{host:'intranet',port:5432}}],
    hint:'A -L listener binds to 127.0.0.1 by default. Give it a bind address, or add -g.',
    sol:'<code>ssh alex@203.0.113.10 -L 0.0.0.0:5432:10.0.0.20:5432</code>. <code>-g</code> or <code>-L 192.168.1.20:5432:10.0.0.20:5432</code> also work.',solCmd:'ssh alex@203.0.113.10 -L 0.0.0.0:5432:10.0.0.20:5432'},
-  {t:'R',title:'Webhook callback',goal:'A job on the bastion calls <code>http://127.0.0.1:8000</code>. It should reach the dev app on your laptop (127.0.0.1:3000).',
+  {layout:'classic',t:'R',title:'Webhook callback',goal:'A job on the bastion calls <code>http://127.0.0.1:8000</code>. It should reach the dev app on your laptop (127.0.0.1:3000).',
    tests:[{from:'bastion',host:'bastion',port:8000,e:{host:'laptop',port:3000}}],
    hint:'The listener belongs on the bastion. With -R, the laptop looks up the destination host.',
    sol:'<code>ssh alex@203.0.113.10 -R 8000:127.0.0.1:3000</code>',solCmd:'ssh alex@203.0.113.10 -R 8000:127.0.0.1:3000'},
-  {t:'R',title:'Demo for the intranet',goal:'Show your dev app to the intranet server at <code>10.0.0.1:8000</code> on the bastion. You may edit the bastion\'s sshd_config.',
+  {layout:'classic',t:'R',title:'Demo for the intranet',goal:'Show your dev app to the intranet server at <code>10.0.0.1:8000</code> on the bastion. You may edit the bastion\'s sshd_config.',
    tests:[{from:'intranet',host:'bastion',port:8000,e:{host:'laptop',port:3000}}],
    hint:'sshd binds -R listeners to loopback unless GatewayPorts says otherwise.',
-   sol:'Set GatewayPorts to <code>clientspecified</code>, then run <code>ssh alex@203.0.113.10 -R 0.0.0.0:8000:127.0.0.1:3000</code>. GatewayPorts <code>yes</code> also works, but it exposes every -R listener.',solCmd:'ssh alex@203.0.113.10 -R 0.0.0.0:8000:127.0.0.1:3000',solCfg:{gp:'clientspecified',atf:'yes'}},
-  {t:'S',title:'Close the exposure',goal:'Other hosts can reach your dev app through bastion port 8000. Keep it working for the bastion itself and block everyone else.',
-   cfg:{gp:'yes',atf:'yes'},cmd:'ssh alex@203.0.113.10 -R 127.0.0.1:8000:127.0.0.1:3000',
+   sol:'Set GatewayPorts to <code>clientspecified</code>, then run <code>ssh alex@203.0.113.10 -R 0.0.0.0:8000:127.0.0.1:3000</code>. GatewayPorts <code>yes</code> also works, but it exposes every -R listener.',solCmd:'ssh alex@203.0.113.10 -R 0.0.0.0:8000:127.0.0.1:3000',solCfg:{bastion:{gp:'clientspecified'}}},
+  {layout:'classic',t:'S',title:'Close the exposure',goal:'Other hosts can reach your dev app through bastion port 8000. Keep it working for the bastion itself and block everyone else.',
+   cfg:{bastion:{gp:'yes'}},cmd:'ssh alex@203.0.113.10 -R 127.0.0.1:8000:127.0.0.1:3000',
    tests:[{from:'bastion',host:'bastion',port:8000,e:{host:'laptop',port:3000}},{from:'intranet',host:'bastion',port:8000,e:'fail'},{from:'laptop',host:'bastion',port:8000,e:'fail'}],
    hint:'The command already asks for 127.0.0.1. Which side decides the bind address for a -R listener?',
-   sol:'Set GatewayPorts to <code>no</code> (or <code>clientspecified</code>). With <code>yes</code>, sshd binds every -R listener to all interfaces, whatever the client asks for.',solCmd:'ssh alex@203.0.113.10 -R 127.0.0.1:8000:127.0.0.1:3000',solCfg:{gp:'no',atf:'yes'}},
-  {t:'R',title:'Internal-only relay',goal:'The intranet server must reach your coworker\'s file share (192.168.1.30:8000) at bastion port 8001. The laptop must not be able to use that port.',
+   sol:'Set GatewayPorts to <code>no</code> (or <code>clientspecified</code>). With <code>yes</code>, sshd binds every -R listener to all interfaces, whatever the client asks for.',solCmd:'ssh alex@203.0.113.10 -R 127.0.0.1:8000:127.0.0.1:3000',solCfg:{bastion:{gp:'no'}}},
+  {layout:'classic',t:'R',title:'Internal-only relay',goal:'The intranet server must reach your coworker\'s file share (192.168.1.30:8000) at bastion port 8001. The laptop must not be able to use that port.',
    tests:[{from:'intranet',host:'bastion',port:8001,e:{host:'coworker',port:8000}},{from:'laptop',host:'bastion',port:8001,e:'fail'}],
    hint:'Bind the bastion listener to its internal interface only. The laptop can reach the coworker. The bastion can\'t.',
-   sol:'Set GatewayPorts to <code>clientspecified</code>, then run <code>ssh alex@203.0.113.10 -R 10.0.0.1:8001:192.168.1.30:8000</code>.',solCmd:'ssh alex@203.0.113.10 -R 10.0.0.1:8001:192.168.1.30:8000',solCfg:{gp:'clientspecified',atf:'yes'}},
-  {t:'L',title:'Port 80 at home',goal:'Open the wiki at <code>http://127.0.0.1</code> (port 80) on the laptop.',
+   sol:'Set GatewayPorts to <code>clientspecified</code>, then run <code>ssh alex@203.0.113.10 -R 10.0.0.1:8001:192.168.1.30:8000</code>.',solCmd:'ssh alex@203.0.113.10 -R 10.0.0.1:8001:192.168.1.30:8000',solCfg:{bastion:{gp:'clientspecified'}}},
+  {layout:'classic',t:'L',title:'Port 80 at home',goal:'Open the wiki at <code>http://127.0.0.1</code> (port 80) on the laptop.',
    tests:[{from:'laptop',host:'laptop',port:80,e:{host:'intranet',port:80}}],
    hint:'Ports below 1024 are privileged on the laptop.',
    sol:'<code>sudo ssh alex@203.0.113.10 -L 80:10.0.0.20:80</code>',solCmd:'sudo ssh alex@203.0.113.10 -L 80:10.0.0.20:80'},
-  {t:'S',title:'Policy says no',goal:'The bastion admin set AllowTcpForwarding to <code>remote</code>. Make the dev app reachable on the bastion at <code>127.0.0.1:8000</code> anyway, without changing sshd_config.',
-   cfg:{gp:'no',atf:'remote'},
+  {layout:'classic',t:'S',title:'Policy says no',goal:'The bastion admin set AllowTcpForwarding to <code>remote</code>. Make the dev app reachable on the bastion at <code>127.0.0.1:8000</code> anyway, without changing sshd_config.',
+   cfg:{bastion:{atf:'remote'}},
    tests:[{from:'bastion',host:'bastion',port:8000,e:{host:'laptop',port:3000}}],
    hint:'"remote" still allows one direction of forwarding. Which one?',
-   sol:'<code>ssh alex@203.0.113.10 -R 8000:127.0.0.1:3000</code>. "remote" permits -R and blocks -L channels.',solCmd:'ssh alex@203.0.113.10 -R 8000:127.0.0.1:3000'}
+   sol:'<code>ssh alex@203.0.113.10 -R 8000:127.0.0.1:3000</code>. "remote" permits -R and blocks -L channels.',solCmd:'ssh alex@203.0.113.10 -R 8000:127.0.0.1:3000'},
+  {layout:'twohop',t:'L',title:'Pick the right door',goal:'From the laptop, <code>http://127.0.0.1:8081</code> should open the CI dashboard on the build server (172.16.0.5:8080).',
+   tests:[{from:'laptop',host:'laptop',port:8081,e:{host:'ci',port:8080}}],
+   hint:'Two hosts run sshd. Follow the lines: which one is on the build network?',
+   sol:'<code>ssh alex@203.0.113.20 -L 8081:172.16.0.5:8080</code>. The bastion can\'t reach 172.16.0.0/24.',solCmd:'ssh alex@203.0.113.20 -L 8081:172.16.0.5:8080'},
+  {layout:'twohop',t:'L',title:'Database, other door',goal:'Reach the corp database (10.0.0.30:5432) at <code>127.0.0.1:15432</code> on the laptop.',
+   tests:[{from:'laptop',host:'laptop',port:15432,e:{host:'db',port:5432}}],
+   hint:'gitbox can\'t see the corp network. Which server can?',
+   sol:'<code>ssh alex@203.0.113.10 -L 15432:10.0.0.30:5432</code>',solCmd:'ssh alex@203.0.113.10 -L 15432:10.0.0.30:5432'},
+  {layout:'twohop',t:'R',title:'CI calls home',goal:'The CI server must reach your dev app at <code>172.16.0.1:9000</code> on gitbox. Nobody on the Internet side may use gitbox port 9000. You may edit gitbox\'s sshd_config.',
+   tests:[{from:'ci',host:'gitbox',port:9000,e:{host:'laptop',port:3000}},{from:'laptop',host:'gitbox',port:9000,e:'fail'}],
+   hint:'Bind the -R listener to gitbox\'s build-network address only. sshd has to allow a client-chosen bind address.',
+   sol:'Set gitbox\'s GatewayPorts to <code>clientspecified</code>, then run <code>ssh alex@203.0.113.20 -R 172.16.0.1:9000:127.0.0.1:3000</code>.',solCmd:'ssh alex@203.0.113.20 -R 172.16.0.1:9000:127.0.0.1:3000',solCfg:{gitbox:{gp:'clientspecified'}}}
 ];
 let solved=new Set();
-try{solved=new Set(JSON.parse(localStorage.getItem('sshsim-solved')||'[]'));}catch(e){}
-function saveSolved(){try{localStorage.setItem('sshsim-solved',JSON.stringify([...solved]));}catch(e){}}
+try{solved=new Set(JSON.parse(localStorage.getItem('sshlab-solved')||'[]'));}catch(e){}
+function saveSolved(){try{localStorage.setItem('sshlab-solved',JSON.stringify([...solved]));}catch(e){}}
 function renderChList(){
-  $('#chlist').innerHTML=CH.map((c,i)=>`<li><button type="button" data-i="${i}" aria-current="${i===state.ch}"><span class="n">${i+1}</span><span>${c.title}</span><span class="tg ${c.t}">${c.t==='S'?'config':'-'+c.t}</span><span class="dot ${solved.has(c.title)?'done':''}"></span></button></li>`).join('');
+  let last=null;
+  $('#chlist').innerHTML=CH.map((c,i)=>{
+    const head=c.layout!==last?`<li class="grp">${esc(LAYOUTS[c.layout].name)}</li>`:'';last=c.layout;
+    return `${head}<li><button type="button" data-i="${i}" aria-current="${i===state.ch}"><span class="n">${i+1}</span><span>${c.title}</span><span class="tg ${c.t}">${c.t==='S'?'config':'-'+c.t}</span><span class="dot ${solved.has(c.title)?'done':''}"></span></button></li>`;
+  }).join('');
   $('#solved-count').textContent=` ${solved.size}/${CH.length}`;
 }
-function setCfg(c){state.cfg={...c};$('#gp').value=c.gp;$('#atf').value=c.atf;}
+function applyCfg(cfg){Object.entries(cfg||{}).forEach(([id,c])=>{const h=H(id);if(h&&h.sshd)Object.assign(h.sshd,c);});}
 function openChallenge(i){
   state.ch=i;const c=CH[i];
-  setCfg(c.cfg||{gp:'no',atf:'yes'});
+  T=clone(LAYOUTS[c.layout].topo);applyCfg(c.cfg);
+  state.sel=null;state.cfgHost=null;
+  $('#lock-note').textContent=`${LAYOUTS[c.layout].name} · fixed layout (you can drag to tidy it)`;
   $('#cmd').value='';
   $('#ch-title').textContent=`${i+1} · ${c.title}`;
   $('#ch-goal').innerHTML=c.goal;
@@ -995,9 +1438,8 @@ function openChallenge(i){
   runCommand(c.cmd||'');
 }
 let lastChecks=[];
-// A test sends from t.from to the address that host would naturally use: 127.0.0.1 for itself, else the facing interface.
 const testAddr=t=>t.addr||natAddr(t.from,t.host);
-function testLabel(t){return `${t.from} → ${testAddr(t)}:${t.port}`;}
+const testLabel=t=>`${nm(t.from)} → ${testAddr(t)}:${t.port}`;
 function check(){
   const c=CH[state.ch];
   lastChecks=c.tests.map(t=>{
@@ -1006,7 +1448,7 @@ function check(){
     return {t,tr,pass};
   });
   $('#ch-results').innerHTML=lastChecks.map((r,i)=>{
-    const exp=r.t.e==='fail'?'should be blocked':`should reach ${SERVICES[r.t.e.host][r.t.e.port].name} on ${r.t.e.host}`;
+    const exp=r.t.e==='fail'?'should be blocked':`should reach ${svcAt(r.t.e.host,r.t.e.port).name} on ${nm(r.t.e.host)}`;
     const why=!r.pass?(r.t.e==='fail'?`it got through: ${r.tr.reason.toLowerCase()}`:r.tr.reason):'';
     return `<li class="${r.pass?'pass':'fail'}" data-k="${i}" tabindex="0"><span class="m">${r.pass?'✓':'✕'}</span><span class="d"><span>${esc(testLabel(r.t))}</span><span class="x">${esc(exp)}</span>${why?`<span class="why">${esc(why)}</span>`:''}</span></li>`;
   }).join('');
@@ -1030,22 +1472,22 @@ function setMode(m){
   $('#tab-sandbox').setAttribute('aria-selected',m==='sandbox');
   $('#tab-challenges').setAttribute('aria-selected',m==='challenges');
   $('#panel-sandbox').hidden=m!=='sandbox';
+  $('#panel-sandbox-2').hidden=m!=='sandbox';
   $('#panel-challenges').hidden=m!=='challenges';
+  $('#edit-tools').hidden=m!=='sandbox';
+  $('#file-tools').hidden=m!=='sandbox';
+  $('#lock-note').hidden=m==='sandbox';
+  $('#confirm').hidden=true;
   if(m==='challenges') openChallenge(state.ch);
-  else {setCfg({gp:'no',atf:'yes'});$('#cmd').value='';runCommand('');}
+  else {T=state.sandbox;state.sel=null;$('#cmd').value='';runCommand('');renderInspector();}
 }
-$('#tab-sandbox').addEventListener('click',()=>setMode('sandbox'));
-$('#tab-challenges').addEventListener('click',()=>setMode('challenges'));
+$('#tab-sandbox').addEventListener('click',()=>{if(state.mode!=='sandbox')setMode('sandbox');});
+$('#tab-challenges').addEventListener('click',()=>{if(state.mode!=='challenges')setMode('challenges');});
 $('#cmd-form').addEventListener('submit',e=>{e.preventDefault();runCommand($('#cmd').value);});
 $('#clear-log').addEventListener('click',()=>{logLines=[];renderLog();});
-function cfgChanged(){
-  state.cfg={gp:$('#gp').value,atf:$('#atf').value};
-  pushLog({c:'dim',t:`# bastion: GatewayPorts ${state.cfg.gp}, AllowTcpForwarding ${state.cfg.atf} (sshd reloaded)`});
-  if(state.session&&state.session.cmd){pushLog({c:'dim',t:'# reconnecting with the same command'});runCommand(state.session.cmd);}
-  else {renderLog();renderAll();resetPlayer();}
-}
 $('#gp').addEventListener('change',cfgChanged);
 $('#atf').addEventListener('change',cfgChanged);
+$('#cfg-host').addEventListener('change',()=>{state.cfgHost=$('#cfg-host').value;renderCfg();});
 $('#p-send').addEventListener('click',()=>playAll(newTrace()));
 $('#p-step').addEventListener('click',stepOnce);
 $('#p-reset').addEventListener('click',resetPlayer);
@@ -1060,14 +1502,14 @@ const ex=$('#examples');
 ex.innerHTML='<option value="">Load an example…</option>'+EXAMPLES.map((x,i)=>`<option value="${i}">${esc(x[0])}</option>`).join('');
 ex.addEventListener('change',()=>{
   if(ex.value==='')return;
-  const [,c,cfg]=EXAMPLES[+ex.value];
-  setCfg(cfg||{gp:'no',atf:'yes'});
-  if(cfg&&cfg.gp!=='no') pushLog({c:'dim',t:`# bastion: GatewayPorts ${cfg.gp}, AllowTcpForwarding ${cfg.atf} (sshd reloaded)`});
-  $('#cmd').value=c;runCommand(c);ex.value='';
+  const [,c,cfg]=EXAMPLES[+ex.value];ex.value='';
+  const b=T.hosts.find(h=>h.name==='bastion'&&h.sshd);
+  if(!b) pushLog({c:'dim',t:'# these examples are written for the Classic layout. Load it from "Start from…" first.'});
+  else if(cfg){Object.assign(b.sshd,cfg);saveSandbox();pushLog({c:'dim',t:`# bastion: GatewayPorts ${cfg.gp}, AllowTcpForwarding ${cfg.atf} (sshd reloaded)`});}
+  $('#cmd').value=c;runCommand(c);
 });
 $('#chlist').addEventListener('click',e=>{const b=e.target.closest('button');if(b)openChallenge(+b.dataset.i);});
 $('#ch-check').addEventListener('click',()=>{
-  // Check the command in the input; if it's empty, re-check whatever session is already running.
   const v=$('#cmd').value.trim();
   if(v) runCommand(v,true); else if(state.session) runCommand(state.session.cmd,true);
   check();
@@ -1075,12 +1517,18 @@ $('#ch-check').addEventListener('click',()=>{
 $('#ch-reset').addEventListener('click',()=>openChallenge(state.ch));
 $('#ch-apply').addEventListener('click',()=>{
   const c=CH[state.ch];
-  if(c.solCfg) setCfg(c.solCfg);
+  if(c.solCfg) applyCfg(c.solCfg);
   $('#cmd').value=c.solCmd;runCommand(c.solCmd);
 });
 $('#ch-results').addEventListener('click',e=>{const li=e.target.closest('li');if(li)replayCheck(+li.dataset.k);});
 $('#ch-results').addEventListener('keydown',e=>{if(e.key==='Enter'){const li=e.target.closest('li');if(li)replayCheck(+li.dataset.k);}});
+document.addEventListener('keydown',e=>{
+  if(state.mode!=='sandbox'||e.key!=='Delete'||!state.sel) return;
+  if(e.target.closest&&e.target.closest('input,textarea,select,[data-node]')) return;
+  deleteSel();
+});
 
+state.sandbox=loadSandbox();
 renderChList();
 setMode('sandbox');
 })();
