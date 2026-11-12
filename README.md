@@ -18,6 +18,16 @@ ssh alex@203.0.113.10 -L 8080:10.0.0.20:80
 ssh alex@203.0.113.10 -R 8000:127.0.0.1:3000
 ```
 
+## Advanced lab
+
+`advanced/index.html` is a separate page for more advanced students, live at `https://justinbergman.github.io/tunnels/advanced/`. The basic simulator in `index.html` is unchanged.
+
+- The network is an editable canvas: drag hosts and networks, add new ones, and set each host's interfaces, IP addresses, services, and SSH server.
+- The laptop is the fixed student station, and the terminal always runs on it. Any other host can run `sshd` with its own `GatewayPorts` and `AllowTcpForwarding`.
+- Hosts reach each other only when they share a network. An interface with no IP is outbound only (NAT).
+- Sandbox maps can be exported and imported as JSON.
+- Twelve Challenges on two fixed layouts: Classic (the original nine) and Two jump hosts (three more).
+
 ## Hosting with GitHub Pages
 
 The whole app is `index.html`; there is no build step.
