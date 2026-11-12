@@ -71,7 +71,15 @@ h1{margin:0;font-weight:700;font-size:30px;letter-spacing:-.01em;line-height:1.0
 
 /* main */
 .main{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:14px;align-items:start}
-@media (max-width:940px){.main{grid-template-columns:minmax(0,1fr)}}
+.main>.stage{grid-column:1;grid-row:1}
+.main>.side{grid-column:2;grid-row:1}
+.main>.syntax{grid-column:1/-1}
+/* Challenges: the syntax reference sits in the left column, beside the challenge list and card. */
+.main.ch{grid-template-rows:auto 1fr}
+.main.ch>.side{grid-row:1/span 2}
+.main.ch>.syntax{grid-column:1;grid-row:2}
+.main.ch .syn-grid{grid-template-columns:minmax(0,1fr)}
+@media (max-width:940px){.main,.main.ch{grid-template-columns:minmax(0,1fr);grid-template-rows:none}.main>*,.main.ch>*{grid-column:auto!important;grid-row:auto!important}}
 .stage{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px 14px;min-width:0;display:flex;flex-direction:column;gap:10px}
 .diagram-wrap{overflow-x:auto}
 #net{display:block;width:100%;min-width:700px;height:auto}
@@ -313,25 +321,26 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
         </div>
       </div>
     </aside>
+
+    <section class="card syntax" id="syntax" aria-label="Syntax reference">
+      <h2>Syntax reference</h2>
+      <div class="syn-grid">
+        <div class="syn">
+          <span class="syn-tag L">-L local forward</span>
+          <pre>ssh user@ssh_server -L [bind_address:]listen_port:dest_ip:dest_port</pre>
+          <pre class="ex">ssh alex@203.0.113.10 -L 2222:10.0.0.20:22</pre>
+          <p>Listens on your machine. The SSH server connects to dest_ip, so 127.0.0.1 there means the server.</p>
+        </div>
+        <div class="syn">
+          <span class="syn-tag R">-R remote forward</span>
+          <pre>ssh user@ssh_server -R [bind_address:]listen_port:dest_ip:dest_port</pre>
+          <pre class="ex">ssh alex@203.0.113.10 -R 9000:127.0.0.1:5000</pre>
+          <p>Listens on the SSH server. Your machine connects to dest_ip, so 127.0.0.1 there means your machine.</p>
+        </div>
+      </div>
+    </section>
   </div>
 
-  <section class="card syntax" id="syntax" aria-label="Syntax reference">
-    <h2>Syntax reference</h2>
-    <div class="syn-grid">
-      <div class="syn">
-        <span class="syn-tag L">-L local forward</span>
-        <pre>ssh user@ssh_server -L [bind_address:]listen_port:dest_ip:dest_port</pre>
-        <pre class="ex">ssh alex@203.0.113.10 -L 2222:10.0.0.20:22</pre>
-        <p>Listens on your machine. The SSH server connects to dest_ip, so 127.0.0.1 there means the server.</p>
-      </div>
-      <div class="syn">
-        <span class="syn-tag R">-R remote forward</span>
-        <pre>ssh user@ssh_server -R [bind_address:]listen_port:dest_ip:dest_port</pre>
-        <pre class="ex">ssh alex@203.0.113.10 -R 9000:127.0.0.1:5000</pre>
-        <p>Listens on the SSH server. Your machine connects to dest_ip, so 127.0.0.1 there means your machine.</p>
-      </div>
-    </div>
-  </section>
 </div>
 
 <script>
@@ -1017,6 +1026,7 @@ function replayCheck(k){
 /* ---------- wiring ---------- */
 function setMode(m){
   state.mode=m;
+  $('.main').classList.toggle('ch',m==='challenges');
   $('#tab-sandbox').setAttribute('aria-selected',m==='sandbox');
   $('#tab-challenges').setAttribute('aria-selected',m==='challenges');
   $('#panel-sandbox').hidden=m!=='sandbox';
