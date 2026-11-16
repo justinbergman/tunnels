@@ -330,13 +330,11 @@ summary{cursor:pointer;color:var(--muted);font-weight:600}
           <span class="syn-tag L">-L local forward</span>
           <pre>ssh user@ssh_server -L [bind_address:]listen_port:dest_ip:dest_port</pre>
           <pre class="ex">ssh alex@203.0.113.10 -L 2222:10.0.0.20:22</pre>
-          <p>Listens on your machine. The SSH server connects to dest_ip, so 127.0.0.1 there means the server.</p>
         </div>
         <div class="syn">
           <span class="syn-tag R">-R remote forward</span>
           <pre>ssh user@ssh_server -R [bind_address:]listen_port:dest_ip:dest_port</pre>
           <pre class="ex">ssh alex@203.0.113.10 -R 9000:127.0.0.1:5000</pre>
-          <p>Listens on the SSH server. Your machine connects to dest_ip, so 127.0.0.1 there means your machine.</p>
         </div>
       </div>
     </section>
