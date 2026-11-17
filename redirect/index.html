@@ -1,0 +1,1128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Interactive lab for learning non-SSH port redirection with socat, ncat and Windows netsh portproxy.">
+<title>Redirection Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&display=swap">
+<style>
+/* Layout mirrors the SSH pages: terminal on top, network diagram as the stage, tools + tests in a side rail. */
+:root{
+  --bg:#eef2f5; --surface:#ffffff; --zone:#e4eaf0; --line:#cfd8e1; --line-strong:#a9b6c4;
+  --ink:#16202b; --ink-soft:#3c4a5a; --muted:#5d6b7b;
+  --plain:#b8740a; --plain-soft:#f6e6c8;
+  --socat:#0f8577; --socat-soft:#d3efeb;
+  --ncat:#2d5bc9; --ncat-soft:#dde6fa;
+  --netsh:#a63a7f; --netsh-soft:#f5dcec;
+  --ncpipe:#6b45d6; --ncpipe-soft:#e7e0fb;
+  --bad:#c0352d; --bad-soft:#f8dcda; --good:#1d7f47; --good-soft:#d6f0e0;
+  --term-bg:#0e151d; --term-fg:#d3dee9; --term-dim:#7d8b9b; --term-prompt:#5fd1b9; --term-err:#ff8a80; --term-win:#7fb0ff; --term-line:#253241;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0c1218; --surface:#141c25; --zone:#172230; --line:#26323f; --line-strong:#3c4b5c;
+  --ink:#e2e9f0; --ink-soft:#b5c2cf; --muted:#8a98a8;
+  --plain:#e2a23c; --plain-soft:#3a2c12;
+  --socat:#33bba9; --socat-soft:#123430;
+  --ncat:#79a0f5; --ncat-soft:#1b2a4a;
+  --netsh:#e27cbc; --netsh-soft:#3d1a31; --ncpipe:#a68bfb; --ncpipe-soft:#2b2250;
+  --bad:#f0716a; --bad-soft:#3d1b19; --good:#55c788; --good-soft:#143322;
+  --term-bg:#070b10; --term-line:#1d2834;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1218; --surface:#141c25; --zone:#172230; --line:#26323f; --line-strong:#3c4b5c;
+  --ink:#e2e9f0; --ink-soft:#b5c2cf; --muted:#8a98a8;
+  --plain:#e2a23c; --plain-soft:#3a2c12;
+  --socat:#33bba9; --socat-soft:#123430;
+  --ncat:#79a0f5; --ncat-soft:#1b2a4a;
+  --netsh:#e27cbc; --netsh-soft:#3d1a31; --ncpipe:#a68bfb; --ncpipe-soft:#2b2250;
+  --bad:#f0716a; --bad-soft:#3d1b19; --good:#55c788; --good-soft:#143322;
+  --term-bg:#070b10; --term-line:#1d2834;
+  color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-display);font-size:15px;line-height:1.45}
+.app{max-width:1260px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+h1{margin:0;font-weight:700;font-size:30px;letter-spacing:-.01em;line-height:1.05;text-wrap:balance}
+.tag{margin:4px 0 0;font-family:var(--f-mono);font-size:12.5px;color:var(--muted)}
+.tabs{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:3px;gap:3px}
+.tabs button{font:600 14px var(--f-display);letter-spacing:.02em;border:0;background:transparent;color:var(--muted);padding:7px 14px;border-radius:5px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--bg)}
+.tabs button:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--ncat);outline-offset:2px}
+.count{font-family:var(--f-mono);font-weight:500;font-size:12px;opacity:.8;margin-left:4px}
+
+/* terminal */
+.term{background:var(--term-bg);border-radius:10px;border:1px solid var(--term-line);overflow:hidden;color:var(--term-fg);font-family:var(--f-mono);font-size:13px}
+.term-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;border-bottom:1px solid var(--term-line);color:var(--term-dim);font-size:11.5px;letter-spacing:.04em}
+.term-bar .host{color:var(--term-fg)} .term-bar .host b{color:var(--term-prompt);font-weight:600}
+.term-bar .host b.win{color:var(--term-win)}
+.term-bar button{font:500 11.5px var(--f-mono);background:transparent;border:1px solid var(--term-line);color:var(--term-dim);border-radius:4px;padding:2px 8px;cursor:pointer}
+.term-log{max-height:168px;min-height:60px;overflow-y:auto;padding:8px 12px 2px;white-space:pre-wrap;word-break:break-word}
+.term-log .cmd{color:var(--term-fg)} .term-log .cmd b{color:var(--term-prompt);font-weight:500} .term-log .cmd b.win{color:var(--term-win)}
+.term-log .err{color:var(--term-err)} .term-log .dim{color:var(--term-dim)} .term-log .ok{color:var(--term-prompt)}
+.term-line{display:flex;align-items:center;gap:8px;padding:8px 12px 10px}
+.prompt{color:var(--term-prompt);white-space:nowrap} .prompt.win{color:var(--term-win)}
+#cmd{flex:1;min-width:0;background:transparent;border:0;color:var(--term-fg);font:500 14px var(--f-mono);padding:4px 0;caret-color:var(--term-prompt)}
+#cmd:focus{outline:none}
+#cmd::placeholder{color:var(--term-dim)}
+.run{font:600 13px var(--f-display);letter-spacing:.04em;background:var(--term-prompt);color:var(--term-bg);border:0;border-radius:5px;padding:6px 14px;cursor:pointer}
+
+/* main */
+.main{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:14px;align-items:start}
+.main>.stage{grid-column:1;grid-row:1}
+.main>.side{grid-column:2;grid-row:1}
+.main>.syntax{grid-column:1/-1}
+.main.ch{grid-template-rows:auto 1fr}
+.main.ch>.side{grid-row:1/span 2}
+.main.ch>.syntax{grid-column:1;grid-row:2}
+.main.ch .syn-grid{grid-template-columns:minmax(0,1fr)}
+@media (max-width:940px){.main,.main.ch{grid-template-columns:minmax(0,1fr);grid-template-rows:none}.main>*,.main.ch>*{grid-column:auto!important;grid-row:auto!important}}
+.stage{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px 14px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.diagram-wrap{overflow-x:auto}
+#net{display:block;width:100%;min-width:760px;height:auto}
+.hint-click{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);margin:0}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:22px;height:0;border-top:3px dashed var(--plain)}
+.sw.so{border-top:3px dashed var(--socat)} .sw.nc{border-top:3px dashed var(--ncat)} .sw.ns{border-top:3px dashed var(--netsh)}
+.sw.c{width:12px;height:12px;border:2px solid var(--ink-soft);border-radius:50%;background:var(--surface)}
+.trace{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line);padding-top:10px;min-height:46px}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-family:var(--f-mono);font-size:12.5px}
+.steps li{display:flex;gap:8px;align-items:flex-start;color:var(--muted)}
+.steps li.cur{color:var(--ink);font-weight:500}
+.steps li.done:not(.cur){color:var(--muted)}
+.steps .no{font-size:11px;color:var(--muted);width:16px;flex:none;text-align:right}
+.steps .k{width:18px;flex:none;margin-top:7px;border-top:3px dashed var(--plain)}
+.steps .k.event{border:0;height:8px;width:8px;margin:5px 5px 0;border-radius:50%;background:var(--ink-soft)}
+.steps li.failed .k{border-color:var(--bad)}
+.result{margin:2px 0 0;font-family:var(--f-mono);font-size:13px;font-weight:500}
+.result.ok{color:var(--good)} .result.bad{color:var(--bad)}
+.idle{color:var(--muted);font-family:var(--f-mono);font-size:12.5px;margin:0}
+.player{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;border-top:1px solid var(--line);padding-top:10px}
+.player .field{flex:1 1 170px}
+.pbtns{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.pcount{font-family:var(--f-mono);font-size:12px;color:var(--muted);min-width:34px}
+
+/* side */
+.side{display:flex;flex-direction:column;gap:14px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);letter-spacing:.04em;min-width:0}
+select{font:500 13px var(--f-mono);color:var(--ink);background:var(--bg);border:1px solid var(--line-strong);border-radius:5px;padding:5px 6px;max-width:100%}
+.field select{width:100%}
+.btn{font:600 14px var(--f-display);letter-spacing:.02em;border:1px solid var(--ink);background:var(--ink);color:var(--bg);border-radius:6px;padding:7px 14px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line-strong)}
+.reds{display:flex;flex-direction:column;gap:10px}
+.red{border-left:3px solid var(--socat);padding:2px 0 2px 10px;display:flex;flex-direction:column;gap:3px;font-family:var(--f-mono);font-size:12.5px;min-width:0}
+.red.ncat{border-left-color:var(--ncat)} .red.netsh{border-left-color:var(--netsh)}
+.red .head{font-weight:600;word-break:break-word}
+.red .note{color:var(--muted);font-size:11.5px}
+.red .act{display:flex;gap:8px;align-items:center;margin-top:2px}
+.red .stop{font:500 11px var(--f-mono);background:transparent;border:1px solid var(--line-strong);color:var(--muted);border-radius:4px;padding:1px 8px;cursor:pointer}
+.red .stop:hover{border-color:var(--bad);color:var(--bad)}
+.empty{color:var(--muted);font-size:13px;margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.chips small{color:var(--muted);font-size:11px;margin-right:2px}
+.chip{font:500 11.5px var(--f-mono);border:1px solid var(--line-strong);background:var(--bg);color:var(--ink);border-radius:999px;padding:2px 9px;cursor:pointer}
+.chip:hover{border-color:var(--ink)}
+
+/* challenges */
+.chlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.chlist button{width:100%;text-align:left;display:flex;align-items:center;gap:10px;font:500 14px var(--f-display);background:transparent;border:0;border-radius:6px;padding:6px 8px;color:var(--ink);cursor:pointer}
+.chlist button:hover{background:var(--bg)}
+.chlist button[aria-current="true"]{background:var(--bg);font-weight:700}
+.chlist .n{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);width:18px}
+.chlist .dot{margin-left:auto;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--line-strong)}
+.chlist .dot.done{background:var(--good);border-color:var(--good)}
+.chlist .tg{font:600 10.5px var(--f-mono);letter-spacing:.04em;padding:0 5px;border-radius:3px}
+.tg.socat{color:var(--socat);background:var(--socat-soft)} .tg.ncat{color:var(--ncat);background:var(--ncat-soft)} .tg.netsh{color:var(--netsh);background:var(--netsh-soft)} .tg.chain{color:var(--plain);background:var(--plain-soft)}
+.goal{margin:0;font-size:15.5px;line-height:1.45}
+.goal code,.sol code{font-family:var(--f-mono);font-size:13px;background:var(--bg);padding:1px 4px;border-radius:3px}
+.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.checks li{display:flex;gap:8px;align-items:flex-start;font-family:var(--f-mono);font-size:12.5px;cursor:pointer;border-radius:6px;padding:6px 8px;background:var(--bg)}
+.checks .m{font-weight:600;width:14px;flex:none}
+.checks li.pass .m{color:var(--good)} .checks li.fail .m{color:var(--bad)}
+.checks .d{display:flex;flex-direction:column;gap:2px;min-width:0}
+.checks .x{color:var(--muted);font-size:11.5px}
+.checks .why{color:var(--bad);font-size:11.5px}
+.banner{font:600 14px var(--f-display);color:var(--good);background:var(--good-soft);border-radius:6px;padding:7px 10px;margin:0}
+details{font-size:14px}
+summary{cursor:pointer;color:var(--muted);font-weight:600}
+.sol{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.sol p{margin:0}
+.sol pre{margin:0;font:500 12.5px var(--f-mono);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 10px;overflow-x:auto;white-space:pre-wrap}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+
+/* syntax */
+.syntax{gap:12px}
+.syn-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px 20px}
+.syn{display:flex;flex-direction:column;gap:6px;min-width:0}
+.syn pre{margin:0;font:500 12.5px var(--f-mono);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 10px;overflow-x:auto;white-space:pre}
+.syn pre.ex{background:var(--term-bg);color:var(--term-fg);border-color:var(--term-line)}
+.syn p{margin:0;font-size:13.5px;color:var(--muted);max-width:62ch}
+.syn-tag{font:600 11.5px var(--f-mono);letter-spacing:.04em;align-self:flex-start;padding:1px 7px;border-radius:3px}
+.syn-tag.socat{color:var(--socat);background:var(--socat-soft)} .syn-tag.ncat{color:var(--ncat);background:var(--ncat-soft)} .syn-tag.netsh{color:var(--netsh);background:var(--netsh-soft)}
+
+/* svg */
+.zone-link{stroke:var(--line-strong);stroke-width:1.4;fill:none}
+.zone-link.nat{stroke-dasharray:4 4}
+.natlab{font:600 10px var(--f-mono);fill:var(--muted)}
+.netnode rect{fill:var(--zone);stroke:var(--line-strong)}
+.netnode .nn{font:600 11px var(--f-display);letter-spacing:.08em;fill:var(--muted)}
+.netnode .nc{font:10px var(--f-mono);fill:var(--muted)}
+.host{cursor:pointer}
+.host rect{fill:var(--surface);stroke:var(--ink-soft);stroke-width:1.2}
+.host.win rect{stroke:var(--netsh)}
+.host.active rect{stroke:var(--term-prompt);stroke-width:2.4}
+.host .nm{font:600 15px var(--f-display);fill:var(--ink)}
+.host .rl{font:500 10.5px var(--f-mono);fill:var(--muted)}
+.host .ip{font:500 11px var(--f-mono);fill:var(--ink)} .host .ip.sm{font-size:10px}
+.host .sv{font:10px var(--f-mono);fill:var(--muted)}
+.host .os{font:600 9.5px var(--f-mono);letter-spacing:.08em}
+.host .os.linux{fill:var(--socat)} .host .os.windows{fill:var(--netsh)}
+.map{fill:none;stroke-width:1.7;stroke-dasharray:1.5 5;stroke-linecap:round}
+.map.socat{stroke:var(--socat)} .map.ncat{stroke:var(--ncat)} .map.netsh{stroke:var(--netsh)} .map.bad{stroke:var(--bad)}
+.listen{fill:var(--surface);stroke-width:2.5}
+.listen.socat{stroke:var(--socat)} .listen.ncat{stroke:var(--ncat)} .listen.netsh{stroke:var(--netsh)}
+.lport{font:600 11px var(--f-mono)}
+.lport.socat{fill:var(--socat)} .lport.ncat{fill:var(--ncat)} .lport.netsh{fill:var(--netsh)}
+.bdg rect{stroke-width:1.2}
+.bdg text{font:500 11px var(--f-mono)}
+.bdg.socat rect{fill:var(--socat-soft);stroke:var(--socat)} .bdg.socat text{fill:var(--socat)}
+.bdg.ncat rect{fill:var(--ncat-soft);stroke:var(--ncat)} .bdg.ncat text{fill:var(--ncat)}
+.bdg.netsh rect{fill:var(--netsh-soft);stroke:var(--netsh)} .bdg.netsh text{fill:var(--netsh)}
+.hop{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke:var(--plain);stroke-dasharray:7 6}
+.hop.failed{stroke:var(--bad);opacity:.7}
+.mk{fill:var(--plain)}
+.evt{fill:none;stroke:var(--ink);stroke-width:2;animation:evt .9s ease-out forwards}
+@keyframes evt{from{r:9px;opacity:.9}to{r:26px;opacity:0}}
+.pk circle{fill:var(--plain);stroke:var(--surface);stroke-width:2}
+.pk.dead circle{fill:var(--bad)}
+.endmark circle{stroke-width:2}
+.endmark.ok circle{fill:var(--good-soft);stroke:var(--good)} .endmark.ok text{fill:var(--good)}
+.endmark.bad circle{fill:var(--bad-soft);stroke:var(--bad)} .endmark.bad text{fill:var(--bad)}
+.endmark text{font:700 14px var(--f-display)}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important}.evt{display:none}}
+/* nc pipe relay */
+.sw.ncp{border-top:3px dashed var(--ncpipe)}
+.map.ncpipe{stroke:var(--ncpipe)} .listen.ncpipe{stroke:var(--ncpipe)} .lport.ncpipe{fill:var(--ncpipe)}
+.bdg.ncpipe rect{fill:var(--ncpipe-soft);stroke:var(--ncpipe)} .bdg.ncpipe text{fill:var(--ncpipe)}
+.red.ncpipe{border-left-color:var(--ncpipe)}
+.tg.ncpipe{color:var(--ncpipe);background:var(--ncpipe-soft)}
+.syn-tag.ncpipe{color:var(--ncpipe);background:var(--ncpipe-soft)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div>
+      <h1>Redirection Lab</h1>
+      <p class="tag">socat · ncat · Windows netsh portproxy — port redirection without SSH</p>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Mode">
+      <button id="tab-sandbox" role="tab" aria-selected="true">Sandbox</button>
+      <button id="tab-challenges" role="tab" aria-selected="false">Challenges<span class="count" id="solved-count"></span></button>
+    </div>
+  </header>
+
+  <section class="term" aria-label="Terminal">
+    <div class="term-bar"><span class="host" id="term-host"></span><button type="button" id="clear-log">clear</button></div>
+    <div class="term-log" id="log" aria-live="polite"></div>
+    <form class="term-line" id="cmd-form">
+      <label class="prompt" id="prompt" for="cmd"></label>
+      <input id="cmd" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="">
+      <button class="run" type="submit">Run</button>
+    </form>
+  </section>
+
+  <div class="main">
+    <section class="stage" aria-label="Network diagram">
+      <p class="hint-click">Click a host to run commands on it. The terminal switches to whichever host is outlined.</p>
+      <div class="diagram-wrap">
+        <svg id="net" viewBox="0 0 1040 470" role="img" aria-label="Five hosts across three networks. Click a host to use its terminal.">
+          <defs>
+            <marker id="mk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker>
+          </defs>
+          <g id="static"></g>
+          <g id="trace"></g>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><i class="sw"></i>plaintext TCP hop (nothing here is encrypted)</span>
+        <span><i class="sw c"></i>listener (inside a box = 127.0.0.1 only)</span>
+        <span><i class="sw so"></i>socat</span>
+        <span><i class="sw nc"></i>ncat</span>
+        <span><i class="sw ns"></i>netsh</span>
+        <span><i class="sw ncp"></i>nc pipe</span>
+      </div>
+      <div class="player">
+        <label class="field">Test from<select id="t-from"></select></label>
+        <label class="field">Connect to<select id="t-to"></select></label>
+        <div class="pbtns">
+          <button class="btn" id="p-send" type="button">Send packet</button>
+          <button class="btn ghost" id="p-step" type="button">Step ▸</button>
+          <button class="btn ghost" id="p-reset" type="button">Reset</button>
+          <span class="pcount" id="p-count"></span>
+        </div>
+      </div>
+      <div class="trace">
+        <p class="idle" id="idle">Set up a redirector in the terminal, then choose where a packet starts and where it goes.</p>
+        <ol class="steps" id="steps"></ol>
+        <p class="result" id="result"></p>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div id="panel-sandbox" class="side">
+        <div class="card">
+          <h2>Redirectors running</h2>
+          <div class="reds" id="reds"></div>
+        </div>
+        <div class="card">
+          <h2>Examples for this host</h2>
+          <select id="examples" aria-label="Load an example command"></select>
+        </div>
+      </div>
+
+      <div id="panel-challenges" class="side" hidden>
+        <div class="card">
+          <h2>Challenges</h2>
+          <ul class="chlist" id="chlist"></ul>
+        </div>
+        <div class="card" id="chcard">
+          <h2 id="ch-title"></h2>
+          <p class="goal" id="ch-goal"></p>
+          <div class="btnrow"><button class="btn" id="ch-check" type="button">Check</button><button class="btn ghost" id="ch-reset" type="button">Reset</button></div>
+          <p class="banner" id="ch-banner" hidden>Solved.</p>
+          <ul class="checks" id="ch-results"></ul>
+          <details id="ch-hint"><summary>Hint</summary><div class="sol"><p id="ch-hint-text"></p></div></details>
+          <details id="ch-sol"><summary>Solution</summary><div class="sol"><div id="ch-sol-text"></div><div class="btnrow"><button class="btn ghost" id="ch-apply" type="button">Apply solution</button></div></div></details>
+        </div>
+      </div>
+    </aside>
+
+    <section class="card syntax" id="syntax" aria-label="Syntax reference">
+      <h2>Syntax reference</h2>
+      <div class="syn-grid">
+        <div class="syn">
+          <span class="syn-tag socat">socat · Linux</span>
+          <pre>socat TCP-LISTEN:&lt;port&gt;[,bind=&lt;addr&gt;][,fork][,reuseaddr] TCP:&lt;host&gt;:&lt;port&gt;</pre>
+          <pre class="ex">socat TCP-LISTEN:8080,fork,reuseaddr TCP:10.0.0.50:8080</pre>
+          <p>Listens on &lt;port&gt; and relays each connection on to &lt;host&gt;:&lt;port&gt;. Without <code>bind=</code> it listens on every interface. The target is resolved on the host running socat.</p>
+        </div>
+        <div class="syn">
+          <span class="syn-tag ncat">ncat · Linux</span>
+          <pre>ncat -l [&lt;addr&gt;] &lt;port&gt; --sh-exec "ncat &lt;host&gt; &lt;port&gt;"</pre>
+          <pre class="ex">ncat -l 8080 --sh-exec "ncat 10.0.0.50 8080"</pre>
+          <p>Ncat (from nmap) listens, then runs a second ncat that dials the target, stitching the two together. <code>ncat -z &lt;host&gt; &lt;port&gt;</code> just tests a port.</p>
+        </div>
+        <div class="syn">
+          <span class="syn-tag netsh">netsh portproxy · Windows</span>
+          <pre>netsh interface portproxy add v4tov4 listenport=&lt;p&gt; [listenaddress=&lt;addr&gt;] connectport=&lt;p&gt; connectaddress=&lt;host&gt;</pre>
+          <pre class="ex">netsh interface portproxy add v4tov4 listenport=8080 connectport=3000 connectaddress=172.16.0.50</pre>
+          <p>Adds a persistent proxy rule. <code>listenaddress</code> defaults to 0.0.0.0. <code>show all</code> lists rules; <code>delete v4tov4 listenport=&lt;p&gt;</code> removes one.</p>
+        </div>
+        <div class="syn">
+          <span class="syn-tag ncpipe">nc + named pipe · Linux</span>
+          <pre>mkfifo &lt;pipe&gt;
+nc -l &lt;port&gt; &lt; &lt;pipe&gt; | nc &lt;host&gt; &lt;port&gt; &gt; &lt;pipe&gt;</pre>
+          <pre class="ex">mkfifo /tmp/relay
+nc -l 8080 &lt; /tmp/relay | nc 10.0.0.50 8080 &gt; /tmp/relay</pre>
+          <p>Plain <code>nc</code> can't relay on its own. The shell pipe carries the request one way; the named pipe loops the reply back, so the session works both ways. Drop the fifo and it's forward-only — a common mistake, and a reason people reach for ncat or socat.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+const NS='http://www.w3.org/2000/svg';
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function el(tag,a,parent){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(parent)parent.appendChild(e);return e;}
+function tx(parent,x,y,s,cls,anchor){const t=el('text',{x,y,class:cls,'text-anchor':anchor||'middle'},parent);t.textContent=s;return t;}
+const r1=v=>Math.round(v*10)/10;
+const dispTool=t=>t==='ncpipe'?'nc':t;
+
+/* ---------- fixed network ---------- */
+// Three networks. workstation reaches only the edge net; relay bridges edge-core; winrelay bridges core-dmz.
+const NETS=[
+  {id:'edge',name:'EDGE',cidr:'10.10.0.0/24',x:255,y:150},
+  {id:'core',name:'CORE',cidr:'10.0.0.0/24',x:650,y:150},
+  {id:'dmz',name:'DMZ',cidr:'172.16.0.0/24',x:650,y:380}
+];
+const HOSTS=[
+  {id:'workstation',name:'workstation',role:'you',os:'linux',x:95,y:150,user:'ops',
+   ifaces:[{net:'edge',ip:'10.10.0.10'}],services:[{port:3000,name:'dev app',bind:'lo'}]},
+  {id:'relay',name:'relay',role:'linux jump',os:'linux',x:455,y:150,user:'ops',
+   ifaces:[{net:'edge',ip:'10.10.0.20'},{net:'core',ip:'10.0.0.1'}],services:[{port:9090,name:'admin',bind:'lo'}]},
+  {id:'appsrv',name:'appsrv',role:'server',os:'linux',x:910,y:150,user:'root',
+   ifaces:[{net:'core',ip:'10.0.0.50'}],services:[{port:8080,name:'web UI',bind:'all'},{port:5432,name:'postgres',bind:'all'}]},
+  {id:'winrelay',name:'winrelay',role:'windows jump',os:'windows',x:650,y:300,user:'Administrator',
+   ifaces:[{net:'core',ip:'10.0.0.2'},{net:'dmz',ip:'172.16.0.1'}],services:[]},
+  {id:'dmzsrv',name:'dmzsrv',role:'server',os:'linux',x:910,y:380,user:'root',
+   ifaces:[{net:'dmz',ip:'172.16.0.50'}],services:[{port:3000,name:'internal app',bind:'all'}]}
+];
+const H=id=>HOSTS.find(h=>h.id===id);
+const N=id=>NETS.find(n=>n.id===id);
+const nm=id=>{const h=H(id);return h?h.name:id;};
+const hostIPs=id=>H(id).ifaces.filter(i=>i.ip).map(i=>i.ip);
+const onNet=(id,net)=>!!H(id)&&H(id).ifaces.some(i=>i.net===net);
+function addrOwner(ip){for(const h of HOSTS)for(const i of h.ifaces)if(i.ip===ip)return {host:h.id,net:i.net};return null;}
+function services(id){const s={};H(id).services.forEach(v=>s[v.port]=v);return s;}
+const svcAt=(id,port)=>services(id)[port];
+const scopeAllows=(scope,iface)=>scope==='all'||scope===iface;
+const scopeIP=s=>s==='lo'?'127.0.0.1':s==='all'?'0.0.0.0':s;
+function sharedNet(a,b){for(const i of H(a).ifaces)if(i.ip&&H(b).ifaces.some(j=>j.net===i.net&&j.ip))return i.net;return null;}
+// The address `from` would naturally use for `host`.
+function natAddr(from,host){
+  if(from===host) return '127.0.0.1';
+  const n=sharedNet(from,host);
+  if(n) return H(host).ifaces.find(i=>i.net===n&&i.ip).ip;
+  return hostIPs(host)[0]||'0.0.0.0';
+}
+// Name/IP lookup from `resolver`'s point of view. Returns {host,iface,ip} or {host:null,ip} or {err}.
+function resolve(name,resolver){
+  const n=String(name).toLowerCase();
+  if(['localhost','127.0.0.1','::1'].includes(n)) return {host:resolver,iface:'lo',ip:'127.0.0.1'};
+  if(/^\d{1,3}(\.\d{1,3}){3}$/.test(n)){const o=addrOwner(n);return o?{host:o.host,net:o.net,iface:n,ip:n}:{host:null,ip:n};}
+  const h=HOSTS.find(x=>x.name.toLowerCase()===n);
+  if(h&&h.id===resolver){const i=h.ifaces.find(x=>x.ip);return i?{host:h.id,net:i.net,iface:i.ip,ip:i.ip}:{host:h.id,iface:'lo',ip:'127.0.0.1'};}
+  if(h){const net=sharedNet(resolver,h.id);if(net){const ip=h.ifaces.find(i=>i.net===net&&i.ip).ip;return {host:h.id,net,iface:ip,ip};}}
+  return {err:`${name}: Name or service not known`};
+}
+// The interface a connection from `from` arrives on, or null when there is no route.
+function reach(from,r){
+  if(!r.host) return null;
+  if(r.host===from) return r.iface;
+  return onNet(from,r.net)?r.iface:null;
+}
+// Where a packet from `from` to the typed address lands.
+function locate(from,addr){
+  const r=resolve(addr,from);
+  if(r.err) return {host:null,addr,route:false,iface:null};
+  const iface=reach(from,r);
+  return {host:r.host,addr:r.ip,iface,net:r.net,route:iface!==null};
+}
+
+/* ---------- redirectors ---------- */
+// Each redirector: {id,host,tool,scope('lo'|'all'|ip),bindShown,lport,taddr(string),tport}.
+let redSeq=1;
+const liveRedirectors=()=>state.reds;
+const redsOn=id=>state.reds.filter(r=>r.host===id);
+function portInUse(host,scope,port){
+  if(services(host)[port]) { /* a bound service */ const b=services(host)[port].bind; if(b==='all'||scope==='all'||b===scope) return true; }
+  return state.reds.some(r=>r.host===host&&r.lport===port&&(r.scope==='all'||scope==='all'||r.scope===scope));
+}
+
+/* ---------- tool registry ---------- */
+// To add a tool later: give it an os and a run(ctx) that pushes output lines and, on success, a redirector.
+// ctx = {host, argv (tokens after the command word), raw, out(fn,cls), addRed(fields), removeRed(pred), listReds()}
+function bindScope(host,addr){
+  if(addr===undefined||addr===''||addr==='0.0.0.0'||addr==='*') return {scope:'all',shown:'0.0.0.0'};
+  if(addr==='localhost'||addr==='127.0.0.1') return {scope:'lo',shown:'127.0.0.1'};
+  if(hostIPs(host).includes(addr)) return {scope:addr,shown:addr};
+  return {scope:addr,shown:addr,offHost:true}; // accepted but not an address this host owns
+}
+const isPort=s=>/^\d+$/.test(s)&&+s>=1&&+s<=65535;
+
+const TOOLS={
+  socat:{os:'linux',run(ctx){
+    const pos=ctx.argv.filter(a=>a[0]!=='-'); // ignore -d/-v style flags
+    if(pos.length!==2){ctx.out('socat: E exactly 2 addresses required','err');return;}
+    const [a1,a2]=pos;
+    const p1=a1.split(','),p2=a2.split(',');
+    const lm=/^TCP4?6?-LISTEN:(\d+)$/i.exec(p1[0]);
+    if(!lm){ctx.out(`socat: E unknown device/address "${p1[0]}"`,'err');ctx.out('socat: E first address must be TCP-LISTEN:<port>','dim');return;}
+    const lport=+lm[1];
+    if(!isPort(String(lport))){ctx.out(`socat: E "${lport}" is not a valid port`,'err');return;}
+    let bindAddr;
+    for(const o of p1.slice(1)){const m=/^bind=(.+)$/i.exec(o);if(m)bindAddr=m[1];}
+    const tm=/^TCP4?6?:([^:,]+):(\d+)$/i.exec(p2[0]);
+    if(!tm){ctx.out(`socat: E unknown device/address "${p2[0]}"`,'err');ctx.out('socat: E second address must be TCP:<host>:<port>','dim');return;}
+    const b=bindScope(ctx.host,bindAddr);
+    if(portInUse(ctx.host,b.scope,lport)){ctx.out(`socat: E bind(${b.shown}:${lport}): Address already in use`,'err');return;}
+    ctx.addRed({tool:'socat',scope:b.scope,bindShown:b.shown,lport,taddr:tm[1],tport:+tm[2]});
+    ctx.out(`# socat listening on ${b.shown}:${lport}, forwarding to ${tm[1]}:${tm[2]} (runs in the foreground; backgrounded here)`,'dim');
+  }},
+  ncat:{os:'linux',run(ctx){
+    // tester: ncat -z host port
+    if(ctx.argv.includes('-z')){
+      const pos=ctx.argv.filter(a=>a[0]!=='-'&&!/^\d/.test(a)===false); // keep host + port tokens
+      const rest=ctx.argv.filter(a=>a!=='-z'&&a[0]!=='-');
+      if(rest.length<2){ctx.out('ncat: missing host/port for -z','err');return;}
+      return ctx.test(rest[0],+rest[rest.length-1],'ncat');
+    }
+    const listen=ctx.argv.some(a=>a==='-l'||a==='--listen');
+    if(!listen){ctx.out('ncat: this lab uses ncat only as a relay (-l … --sh-exec) or a tester (-z)','dim');return;}
+    // collect positionals (addr? port) excluding the --sh-exec payload
+    let exec=null,pos=[];
+    for(let i=0;i<ctx.argv.length;i++){
+      const a=ctx.argv[i];
+      if(a==='--sh-exec'||a==='-e'||a==='-c'){exec=ctx.argv[i+1];i++;continue;}
+      if(a==='-l'||a==='--listen')continue;
+      if(a[0]==='-')continue;
+      pos.push(a);
+    }
+    if(!pos.length){ctx.out('ncat: a listen port is required','err');return;}
+    const lport=+pos[pos.length-1],bindAddr=pos.length>1?pos[pos.length-2]:undefined;
+    if(!isPort(String(lport))){ctx.out(`ncat: "${pos[pos.length-1]}" is not a valid port`,'err');return;}
+    if(!exec){ctx.out('ncat: a plain listener accepts one connection and goes nowhere.','err');ctx.out('ncat: to relay, add --sh-exec "ncat <host> <port>"','dim');return;}
+    const im=/ncat\s+(?:-\w+\s+)*([^\s]+)\s+(\d+)/i.exec(exec);
+    if(!im){ctx.out(`ncat: couldn't read a target from --sh-exec "${exec}"`,'err');ctx.out('ncat: expected --sh-exec "ncat <host> <port>"','dim');return;}
+    const b=bindScope(ctx.host,bindAddr);
+    if(portInUse(ctx.host,b.scope,lport)){ctx.out(`Ncat: bind to ${b.shown}:${lport}: Address already in use.`,'err');return;}
+    ctx.addRed({tool:'ncat',scope:b.scope,bindShown:b.shown,lport,taddr:im[1],tport:+im[2]});
+    ctx.out(`Ncat: Listening on ${b.shown}:${lport}, relaying to ${im[1]}:${im[2]}`,'dim');
+  }},
+  nc:{os:'linux',run(ctx){
+    if(ctx.argv.includes('-z')){
+      const rest=ctx.argv.filter(a=>a[0]!=='-');
+      if(rest.length<2){ctx.out('nc: missing host/port','err');return;}
+      return ctx.test(rest[0],+rest[rest.length-1],'nc');
+    }
+    ctx.out('nc: in this lab, use nc -zv <host> <port> to test a port, or ncat/socat to relay.','dim');
+  }},
+  netsh:{os:'windows',run(ctx){
+    const a=ctx.argv;
+    const i0=a.findIndex(x=>/^int(erface)?$/i.test(x));
+    if(i0<0||!/^portproxy$/i.test(a[i0+1]||'')){ctx.out("The following command was not found: "+ctx.argv.join(' ')+".",'err');return;}
+    const sub=(a[i0+2]||'').toLowerCase();
+    const kv={};a.slice(i0+3).forEach(t=>{const m=/^([a-z0-9]+)=(.+)$/i.exec(t);if(m)kv[m[1].toLowerCase()]=m[2];});
+    if(sub==='show'){
+      const list=redsOn(ctx.host).filter(r=>r.tool==='netsh');
+      if(!list.length){ctx.out('',' ');return;}
+      ctx.out('Listen on ipv4:             Connect to ipv4:','dim');
+      ctx.out('Address         Port        Address         Port','dim');
+      ctx.out('--------------- ----------  --------------- ----------','dim');
+      list.forEach(r=>ctx.out(`${scopeIP(r.scope).padEnd(16)}${String(r.lport).padEnd(12)}${String(r.taddr).padEnd(16)}${r.tport}`,'cmd'));
+      return;
+    }
+    if(sub==='add'){
+      if(!/^v4tov4$/i.test(a[i0+3]||'')){ctx.out('The parameter is incorrect.','err');ctx.out('Usage: add v4tov4 [listenport=] [connectaddress=] [connectport=] [listenaddress=]','dim');return;}
+      if(!kv.listenport||!kv.connectport||!kv.connectaddress){ctx.out('The parameter is incorrect.','err');ctx.out('listenport, connectport and connectaddress are required.','dim');return;}
+      if(!isPort(kv.listenport)||!isPort(kv.connectport)){ctx.out('The parameter is incorrect.','err');return;}
+      const b=bindScope(ctx.host,kv.listenaddress);
+      // netsh replaces an existing rule on the same listenaddress:listenport
+      ctx.removeRed(r=>r.tool==='netsh'&&r.lport===+kv.listenport&&r.scope===b.scope);
+      if(portInUse(ctx.host,b.scope,+kv.listenport)){ctx.out('The process cannot access the file because it is being used by another process.','err');return;}
+      ctx.addRed({tool:'netsh',scope:b.scope,bindShown:b.shown,lport:+kv.listenport,taddr:kv.connectaddress,tport:+kv.connectport});
+      ctx.out('',' ');
+      return;
+    }
+    if(sub==='delete'){
+      if(!kv.listenport){ctx.out('The parameter is incorrect.','err');return;}
+      const b=bindScope(ctx.host,kv.listenaddress);
+      const before=state.reds.length;
+      ctx.removeRed(r=>r.tool==='netsh'&&r.lport===+kv.listenport&&r.scope===b.scope);
+      if(state.reds.length===before){ctx.out('The system cannot find the file specified.','err');}
+      else ctx.out('',' ');
+      return;
+    }
+    ctx.out('The parameter is incorrect.','err');
+  }}
+};
+// Windows connectivity tester, kept outside the portproxy tool.
+const WINTEST={os:'windows',run(ctx){
+  const host=ctx.argv[0];let port;
+  const pi=ctx.argv.findIndex(x=>/^-?port$/i.test(x));
+  if(pi>=0)port=+ctx.argv[pi+1];
+  if(!host||!port){ctx.out('Test-NetConnection <host> -Port <port>','dim');return;}
+  ctx.test(host,port,'winrm');
+}};
+const toolFor=(host,word)=>{
+  const os=H(host).os;
+  const w=word.toLowerCase();
+  if(os==='windows'&&w==='test-netconnection')return WINTEST;
+  const t=TOOLS[w];
+  return t&&t.os===os?t:null;
+};
+
+// nc port relay: `nc -l <port> [< fifo] | nc <host> <port> [> fifo]`. The shell pipe carries the
+// request forward; a shared named pipe (mkfifo) loops the reply back. Without it, the relay is forward-only.
+const isNc=tok=>/^(nc|ncat)$/i.test(tok||'');
+function handlePipe(host,raw){
+  if(H(host).os!=='linux'){out("A '|' pipeline of netcat processes is a Unix shell construct; not available on this Windows host.",'err');return;}
+  const parts=raw.split('|');
+  if(parts.length!==2){out('nc relay: join exactly two commands with | — a listener and a connector.','err');return;}
+  const L=tokenize(parts[0]),R=tokenize(parts[1]);
+  if(!isNc(L[0])||!isNc(R[0])){out('nc relay: both sides of the | should be nc or ncat.','err');return;}
+  let listen=false,fifoIn=null,lpos=[];
+  for(let i=1;i<L.length;i++){const t=L[i];if(t==='<'){fifoIn=L[i+1];i++;}else if(t==='-l'||t==='--listen'){listen=true;}else if(t[0]==='-'){}else lpos.push(t);}
+  if(!listen){out('nc relay: the left side needs -l to listen.','err');return;}
+  if(!lpos.length){out('nc relay: the listener needs a port.','err');return;}
+  const lport=+lpos[lpos.length-1],laddr=lpos.length>1?lpos[lpos.length-2]:undefined;
+  if(!isPort(String(lport))){out(`nc: port ${lpos[lpos.length-1]} out of range`,'err');return;}
+  let fifoOut=null,rpos=[];
+  for(let i=1;i<R.length;i++){const t=R[i];if(t==='>'){fifoOut=R[i+1];i++;}else if(t[0]==='-'){}else rpos.push(t);}
+  if(rpos.length<2){out('nc relay: the right side needs a target host and port.','err');return;}
+  const thost=rpos[0],tport=+rpos[1];
+  if(!isPort(String(tport))){out(`nc: port ${rpos[1]} out of range`,'err');return;}
+  const b=bindScope(host,laddr);
+  if(portInUse(host,b.scope,lport)){out(`nc: bind failed: Address already in use`,'err');return;}
+  const twoWay=!!(fifoIn&&fifoOut&&fifoIn===fifoOut&&fifosOf(host).has(fifoIn));
+  if(fifoIn&&!fifosOf(host).has(fifoIn))out(`# ${fifoIn} is not a named pipe (did you mkfifo it?) — treating the reply path as missing`,'dim');
+  state.reds.push({id:redSeq++,host,tool:'ncpipe',scope:b.scope,bindShown:b.shown,lport,taddr:thost,tport,oneway:!twoWay,fifo:twoWay?fifoIn:null});
+  if(twoWay)out(`# nc relay: ${b.shown}:${lport} <-> ${thost}:${tport}, reply looped through ${fifoIn}`,'dim');
+  else out(`# nc relay: ${b.shown}:${lport} -> ${thost}:${tport}, forward only — replies have no path back`,'dim');
+}
+
+/* ---------- a connection attempt, as a list of stages (recursive for chains) ---------- */
+function trace(from,addr,port){
+  const steps=[],out=[];
+  const r=walk(from,addr,port,steps,out,new Set(),0);
+  let {ok,reason,final}=r;
+  if(ok&&steps.some(s=>s.oneway)){
+    ok=false;
+    const svc=svcAt(final.host,final.port);
+    reason=`The request reached ${svc.name} on ${nm(final.host)}:${final.port}, but a forward-only nc pipe has no return path — the reply never comes back and the session stalls.`;
+  }
+  return {ok,reason,final,steps,out,from,addr,port};
+}
+function walk(from,addr,port,steps,out,seen,depth){
+  const fail=reason=>({ok:false,reason});
+  const D=locate(from,addr),host=D.host,a=D.addr;
+  const where=host===from&&a!=='127.0.0.1'?` (${nm(from)}'s own ${a} address, not loopback)`:'';
+  if(!host){
+    steps.push({kind:'direct',from,host:from,net:null,failed:true,stopAt:.5,label:`${nm(from)} tries ${a}:${port}, but no host here owns that address.`});
+    return fail(`No host in this network has the address ${a}`);
+  }
+  const here=state.reds.filter(r=>r.host===host&&r.lport===port);
+  const red=here.find(r=>scopeAllows(r.scope,D.iface))||here[0];
+  if(red){
+    const s1={kind:'in',from,host,net:D.net,oneway:!!red.oneway,label:`${nm(from)} opens a plaintext TCP connection to ${a}:${port}${where} — the ${dispTool(red.tool)} listener on ${nm(host)}.`};
+    if(!D.route){s1.failed=true;s1.stopAt=.5;steps.push(s1);return fail(`${a} isn't reachable from ${nm(from)}: they share no network`);}
+    if(!scopeAllows(red.scope,D.iface)){s1.failed=true;s1.stopAt=.9;steps.push(s1);return fail(`Connection refused: the ${dispTool(red.tool)} listener on ${nm(host)} is bound to ${scopeIP(red.scope)}:${port}, not ${a}:${port}`);}
+    steps.push(s1);
+    const key=host+':'+port;
+    if(seen.has(key)||depth>8){steps.push({kind:'event',at:host,failed:true,label:`${red.tool} on ${nm(host)} would forward into a listener already on this path — forwarding loop.`});return fail('Forwarding loop detected');}
+    seen.add(key);
+    steps.push({kind:'event',at:host,label:`${dispTool(red.tool)} on ${nm(host)} accepts it and opens a new plaintext connection to ${red.taddr}:${red.tport}, resolved from ${nm(host)}'s point of view.`});
+    const inner=walk(host,red.taddr,red.tport,steps,out,seen,depth+1);
+    if(inner.ok) return {ok:true,reason:`Reached ${svcAt(inner.final.host,inner.final.port).name} on ${nm(inner.final.host)}:${inner.final.port} through ${nm(host)}`,final:inner.final};
+    return inner;
+  }
+  const svc=svcAt(host,port);
+  const d={kind:'direct',from,host,net:D.net,label:`${nm(from)} connects to ${a}:${port}${where}. Nothing is relaying here.`};
+  if(!D.route){d.failed=true;d.stopAt=.5;steps.push(d);return fail(`${a} isn't reachable from ${nm(from)}: they share no network`);}
+  if(!svc||!scopeAllows(svc.bind,D.iface)){
+    d.failed=true;d.stopAt=.9;steps.push(d);
+    return fail(svc?`Connection refused: ${svc.name} on ${nm(host)} only listens on 127.0.0.1`:`Connection refused: nothing is listening on ${a}:${port}${host===from&&a==='127.0.0.1'?` (127.0.0.1 is ${nm(from)} itself)`:''}`);
+  }
+  steps.push(d);
+  return {ok:true,reason:`Reached ${svc.name} on ${nm(host)}:${port}`,final:{host,port}};
+}
+
+/* ---------- geometry ---------- */
+const HW=86,HH=36,NH=18;
+const netHW=n=>Math.max(60,Math.max(n.name.length*7,n.cidr.length*6.4)/2+14);
+function box(id){const h=H(id);if(h)return {x:h.x,y:h.y,hw:HW,hh:HH};const n=N(id);return {x:n.x,y:n.y,hw:netHW(n),hh:NH};}
+const ctr=id=>{const b=box(id);return {x:b.x,y:b.y};};
+function bd(id,to){const b=box(id),dx=to.x-b.x,dy=to.y-b.y;if(!dx&&!dy)return {x:b.x,y:b.y};const s=Math.min(dx?b.hw/Math.abs(dx):Infinity,dy?b.hh/Math.abs(dy):Infinity);return {x:b.x+dx*s,y:b.y+dy*s};}
+const poly=pts=>pts.map((p,i)=>(i?'L':'M')+r1(p.x)+' '+r1(p.y)).join(' ');
+function loopD(id){const b=box(id),t=b.y-b.hh;return `M${b.x-24} ${t} C ${b.x-46} ${t-56}, ${b.x+46} ${t-56}, ${b.x+24} ${t}`;}
+// One hop host a -> network -> host b, edge to edge; straight across if they share no drawn network.
+function hopPts(from,host,net){
+  if(net&&N(net)&&onNet(from,net)&&onNet(host,net)){const c=ctr(net);return [bd(from,c),c,bd(host,c)];}
+  return [bd(from,ctr(host)),bd(host,ctr(from))];
+}
+// Listener marker on a host: pulled just inside the box when bound to loopback.
+function listenPt(host,net,lo){
+  const b=box(host),other=net&&N(net)?ctr(net):{x:b.x,y:b.y-200};
+  const p=bd(host,other);
+  if(!lo) return p;
+  const dx=b.x-p.x,dy=b.y-p.y,d=Math.hypot(dx,dy)||1;
+  return {x:p.x+dx/d*12,y:p.y+dy/d*12};
+}
+function stepD(s){
+  if(s.kind==='event') return '';
+  if(s.from===s.host) return loopD(s.from);
+  return poly(hopPts(s.from,s.host,s.net));
+}
+// The network a redirector listener faces (for drawing), i.e. the net its host shares toward likely clients.
+function redFacingNet(r){
+  const ifs=H(r.host).ifaces.filter(i=>i.ip);
+  if(r.scope!=='lo'&&r.scope!=='all'){const f=ifs.find(i=>i.ip===r.scope);if(f)return f.net;}
+  return ifs[0]?ifs[0].net:null;
+}
+
+/* ---------- drawing ---------- */
+function hostLines(h){
+  const ips=h.ifaces.filter(i=>i.ip).map(i=>i.ip).join(' · ')||'(no address)';
+  const sv=h.services.map(s=>`${s.name} ${s.bind==='lo'?'127.0.0.1':''}:${s.port}`).join(' · ');
+  return [ips,sv];
+}
+function renderDiagram(){
+  const g=$('#static');g.textContent='';
+  // links host <-> network
+  HOSTS.forEach(h=>h.ifaces.forEach(i=>{
+    if(!N(i.net))return;
+    const c=ctr(i.net),a=bd(h.id,c),b=bd(i.net,{x:h.x,y:h.y});
+    el('line',{x1:r1(a.x),y1:r1(a.y),x2:r1(b.x),y2:r1(b.y),class:'zone-link'+(i.ip?'':' nat')},g);
+  }));
+  // redirector forward lines
+  state.reds.forEach(r=>{
+    const t=resolve(r.taddr,r.host);
+    if(t.host){
+      const ri=reach(r.host,t),svc=svcAt(t.host,r.tport),isRed=state.reds.some(x=>x.host===t.host&&x.lport===r.tport);
+      const good=ri!==null&&(isRed||(svc&&scopeAllows(svc.bind,ri)));
+      el('path',{d:poly(hopPts(r.host,t.host,t.net)),class:'map '+(good?r.tool:'bad')},g);
+    }
+  });
+  // networks
+  NETS.forEach(n=>{
+    const w=netHW(n),ng=el('g',{class:'netnode'},g);
+    el('rect',{x:r1(n.x-w),y:n.y-NH,width:r1(w*2),height:NH*2,rx:NH},ng);
+    tx(ng,n.x,n.y-3,n.name,'nn');tx(ng,n.x,n.y+11,n.cidr,'nc');
+  });
+  // hosts
+  HOSTS.forEach(h=>{
+    const cls='host'+(h.os==='windows'?' win':'')+(state.term===h.id?' active':'');
+    const hg=el('g',{class:cls,'data-host':h.id,tabindex:0,role:'button','aria-label':`Host ${h.name} (${h.os}). Click to use its terminal.`},g);
+    el('rect',{x:h.x-HW,y:h.y-HH,width:HW*2,height:HH*2,rx:7},hg);
+    const t=el('text',{x:h.x,y:h.y-15,'text-anchor':'middle'},hg);
+    const a=el('tspan',{class:'nm'},t);a.textContent=h.name;
+    const b=el('tspan',{class:'rl',dx:6},t);b.textContent=h.role;
+    const [ips,sv]=hostLines(h);
+    tx(hg,h.x,h.y+2,ips,ips.length>26?'ip sm':'ip');
+    if(sv)tx(hg,h.x,h.y+19,sv,'sv');
+    tx(hg,h.x-HW+6,h.y-HH+13,h.os==='windows'?'WIN':'LNX','os '+h.os,'start');
+  });
+  // listener markers + port labels
+  const row={};
+  state.reds.forEach(r=>{
+    const net=redFacingNet(r),p=listenPt(r.host,net,r.scope==='lo');
+    el('circle',{cx:r1(p.x),cy:r1(p.y),r:6,class:'listen '+r.tool},g);
+    const n=row[r.host]=(row[r.host]||0)+1;
+    tx(g,r1(p.x),r1(p.y-11-(n-1)*13),`:${r.lport}${r.scope==='lo'?' lo':''}`,'lport '+r.tool);
+  });
+  // badges under each host
+  const per={};
+  state.reds.forEach(r=>{(per[r.host]=per[r.host]||[]).push(r);});
+  Object.keys(per).forEach(id=>{
+    const h=H(id);
+    per[id].forEach((r,i)=>{
+      const text=`${dispTool(r.tool)} ${scopeIP(r.scope)}:${r.lport} ${r.oneway?'⇢':'↦'} ${r.taddr}:${r.tport}`;
+      const y=h.y+HH+8+i*22,w=Math.max(60,text.length*6.3+16);
+      const bg=el('g',{class:'bdg '+r.tool},g);
+      el('rect',{x:r1(h.x-w/2),y,width:r1(w),height:19,rx:3},bg);
+      tx(bg,h.x,y+13,text);
+    });
+  });
+}
+
+/* ---------- packet player ---------- */
+let animToken=0;
+const P={tr:null,i:0,busy:false,pk:null};
+const reduceMotion=()=>window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function setResult(ok,txt){const r=$('#result');r.className='result'+(ok===true?' ok':ok===false?' bad':'');r.textContent=txt||'';}
+function resetPlayer(){animToken++;P.tr=null;P.i=0;P.busy=false;P.pk=null;$('#trace').textContent='';setResult();renderSteps();}
+function renderSteps(){
+  const list=$('#steps');
+  if(!P.tr){list.textContent='';$('#idle').hidden=false;$('#p-count').textContent='';$('#p-step').textContent='Step ▸';return;}
+  $('#idle').hidden=true;
+  list.innerHTML=P.tr.steps.slice(0,P.i).map((s,j)=>`<li class="done${j===P.i-1?' cur':''}${s.failed?' failed':''}"><span class="no">${j+1}</span><i class="k ${s.kind}"></i><span>${esc(s.label)}</span></li>`).join('');
+  $('#p-count').textContent=`${P.i}/${P.tr.steps.length}`;
+  $('#p-step').textContent=P.i>=P.tr.steps.length?'Step again ▸':P.i===0?'Step ▸':'Next step ▸';
+}
+function splitTarget(v){const i=v.lastIndexOf(':');return [v.slice(0,i),+v.slice(i+1)];}
+function newTrace(){const v=$('#t-to').value;if(!v)return null;const [a,p]=splitTarget(v);return trace($('#t-from').value,a,p);}
+function loadTrace(tr){resetPlayer();P.tr=tr;renderSteps();}
+function moveAlong(path,dist,pk,token){
+  const place=d=>{const pt=path.getPointAtLength(d);pk.setAttribute('transform',`translate(${pt.x} ${pt.y})`);};
+  if(reduceMotion()){place(dist);return Promise.resolve();}
+  const dur=Math.max(480,dist*2.6);
+  return new Promise(done=>{
+    const t0=performance.now();
+    function f(now){
+      if(token!==animToken)return done();
+      let k=Math.min(1,(now-t0)/dur);k=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+      place(dist*k);
+      if(k<1)requestAnimationFrame(f);else done();
+    }
+    requestAnimationFrame(f);
+  });
+}
+function pulse(){
+  if(!P.pk||reduceMotion())return;
+  const c=el('circle',{r:9,class:'evt',transform:P.pk.getAttribute('transform')},$('#trace'));
+  setTimeout(()=>c.remove(),950);
+}
+async function doStage(){
+  const s=P.tr.steps[P.i],layer=$('#trace'),my=animToken;
+  P.busy=true;
+  if(s.kind==='event')pulse();
+  else{
+    const p=el('path',{d:stepD(s),class:'hop'+(s.failed?' failed':'')},layer);
+    if(!s.failed)p.setAttribute('marker-end','url(#mk)');
+    if(!P.pk){P.pk=el('g',{class:'pk'});el('circle',{r:7},P.pk);}
+    layer.appendChild(P.pk);P.pk.setAttribute('class','pk');
+    const len=p.getTotalLength();
+    await moveAlong(p,s.failed?len*(s.stopAt||1):len,P.pk,my);
+  }
+  if(my!==animToken)return false;
+  P.i++;P.busy=false;renderSteps();
+  if(P.i>=P.tr.steps.length)finish();
+  return true;
+}
+function finish(){
+  const tr=P.tr,layer=$('#trace');
+  if(tr.ok){
+    const H0=H(tr.final.host);
+    const m=el('g',{class:'endmark ok',transform:`translate(${H0.x+HW} ${H0.y-HH})`},layer);
+    el('circle',{r:11},m);tx(m,0,5,'✓');
+    setResult(true,'✓ '+tr.reason);
+  }else{
+    if(P.pk){
+      P.pk.setAttribute('class','pk dead');
+      const m=el('g',{class:'endmark bad',transform:P.pk.getAttribute('transform')},layer);
+      el('circle',{r:11},m);tx(m,0,5,'✕');
+    }
+    setResult(false,'✕ '+tr.reason);
+  }
+}
+async function playAll(tr){
+  loadTrace(tr);
+  const my=animToken;
+  if(!P.tr||!P.tr.steps.length){if(P.tr)finish();return;}
+  while(P.i<P.tr.steps.length){
+    const isEvt=P.tr.steps[P.i].kind==='event';
+    if(!(await doStage())||my!==animToken)return;
+    if(!reduceMotion())await sleep(isEvt?850:170);
+    if(my!==animToken)return;
+  }
+}
+function stepOnce(){
+  if(P.busy)return;
+  if(!P.tr||P.i>=P.tr.steps.length){const t=newTrace();if(!t)return;loadTrace(t);}
+  doStage();
+}
+
+/* ---------- terminal ---------- */
+let logLines=[],history=[],hpos=-1;
+function pushLog(l){logLines.push(l);if(logLines.length>120)logLines=logLines.slice(-120);}
+function promptStr(host){const h=H(host);return h.os==='windows'?`PS C:\\Users\\${h.user}>`:`${h.user}@${h.name}:~$`;}
+function renderLog(){
+  const box=$('#log');
+  box.innerHTML=logLines.map(l=>{
+    if(l.c==='cmd2'){const win=l.win?' win':'';return `<div class="cmd"><b class="${win}">${esc(l.p)}</b> ${esc(l.t)}</div>`;}
+    return `<div class="${l.c}">${esc(l.t)}</div>`;
+  }).join('');
+  box.scrollTop=box.scrollHeight;
+}
+function renderPrompt(){
+  const h=H(state.term),win=h.os==='windows';
+  $('#prompt').textContent=promptStr(state.term);
+  $('#prompt').className='prompt'+(win?' win':'');
+  $('#term-host').innerHTML=`<b class="${win?'win':''}">${esc(h.name)}</b> — ${win?'powershell':'bash'}`;
+  $('#cmd').placeholder=win?'netsh interface portproxy …':'socat / ncat …';
+}
+function out(t,cls){pushLog({c:cls==='cmd'?'cmd':cls||'cmd',t});}
+// Run a command string as if typed on `host`.
+function runOn(host,cmdStr,quiet){
+  state.term=host;renderPrompt();
+  const h=H(host);
+  if(!quiet)pushLog({c:'cmd2',p:promptStr(host),t:cmdStr,win:h.os==='windows'});
+  const argv=tokenize(cmdStr);
+  if(argv.length){
+    const w=argv[0];
+    if(w==='clear'){logLines=[];renderLog();return;}
+    else if(w==='help'){helpText(host);}
+    else if(cmdStr.includes('|')){handlePipe(host,cmdStr);}
+    else if(w==='mkfifo'){
+      if(h.os!=='linux')out(`'mkfifo' is not recognized as an internal or external command, operable program or batch file.`,'err');
+      else if(!argv[1])out('mkfifo: missing operand','err');
+      else {fifosOf(host).add(argv[1]);out(`# named pipe ${argv[1]} created`,'dim');}
+    }
+    else{
+      const tool=toolFor(host,w);
+      if(tool){
+        tool.run(makeCtx(host,argv.slice(1)));
+      }else{
+        if(h.os==='windows')out(`'${w}' is not recognized as an internal or external command, operable program or batch file.`,'err');
+        else out(`${w}: command not found`,'err');
+      }
+    }
+  }
+  renderLog();renderAll();resetPlayer();
+}
+function makeCtx(host,argv){
+  return {
+    host,argv,
+    out:(t,cls)=>out(t,cls==='cmd'?'cmd':cls||'cmd'),
+    addRed:f=>{state.reds.push(Object.assign({id:redSeq++,host},f));},
+    removeRed:pred=>{state.reds=state.reds.filter(r=>!(r.host===host&&pred(r)));},
+    listReds:()=>redsOn(host),
+    test:(addr,port,style)=>testPort(host,addr,port,style)
+  };
+}
+function testPort(from,addr,port,style){
+  const tr=trace(from,addr,port);
+  if(style==='nc')out(tr.ok?`Connection to ${addr} ${port} port [tcp/*] succeeded!`:`nc: connect to ${addr} port ${port} (tcp) failed: ${/refused|listening|Connection refused/i.test(tr.reason)?'Connection refused':'No route to host'}`,tr.ok?'ok':'err');
+  else if(style==='ncat')out(tr.ok?`Ncat: Connected to ${addr}:${port}.`:`Ncat: ${/refused|listening/i.test(tr.reason)?'Connection refused':'No route to host'}.`,tr.ok?'ok':'err');
+  else if(style==='winrm'){out(`ComputerName     : ${addr}`,'dim');out(`RemotePort       : ${port}`,'dim');out(`TcpTestSucceeded : ${tr.ok?'True':'False'}`,tr.ok?'ok':'err');}
+  // also show it on the map
+  setSender(from);setTarget(`${addr}:${port}`);playAll(tr);
+}
+function helpText(host){
+  const h=H(host);
+  if(h.os==='windows'){
+    out('Redirect a port (persists until deleted):','dim');
+    out('  netsh interface portproxy add v4tov4 listenport=<p> connectport=<p> connectaddress=<host>','cmd');
+    out('  netsh interface portproxy show all','cmd');
+    out('  netsh interface portproxy delete v4tov4 listenport=<p>','cmd');
+    out('  Test-NetConnection <host> -Port <p>','cmd');
+  }else{
+    out('Redirect a port:','dim');
+    out('  socat TCP-LISTEN:<p>,fork,reuseaddr TCP:<host>:<p>','cmd');
+    out('  ncat -l <p> --sh-exec "ncat <host> <p>"','cmd');
+    out('  mkfifo /tmp/relay; nc -l <p> < /tmp/relay | nc <host> <p> > /tmp/relay','cmd');
+    out('Test a port:  nc -zv <host> <p>','cmd');
+  }
+  out('clear — wipe the screen.  Click another host on the map to run commands there.','dim');
+}
+// Split a command line, keeping "double quoted" runs together.
+function tokenize(s){
+  const t=[];let cur='',q=false;
+  for(const ch of s.trim()){
+    if(ch==='"'){q=!q;continue;}
+    if(/\s/.test(ch)&&!q){if(cur){t.push(cur);cur='';}continue;}
+    cur+=ch;
+  }
+  if(cur)t.push(cur);
+  return t;
+}
+
+/* ---------- targets for the player ---------- */
+function targetLabel(from,v){
+  const [a,p]=splitTarget(v),D=locate(from,a);
+  if(!D.host)return `${a}:${p}  unknown address`;
+  const who=a==='127.0.0.1'?`${nm(from)} itself`:nm(D.host);
+  const red=state.reds.find(r=>r.host===D.host&&r.lport===p);
+  const svc=svcAt(D.host,p);
+  const what=red?`${dispTool(red.tool)} listener${scopeAllows(red.scope,D.iface)?'':` (bound to ${scopeIP(red.scope)})`}`
+    :svc?svc.name+(svc.bind==='lo'&&D.iface!=='lo'?' (127.0.0.1 only)':''):'nothing listening';
+  return `${a}:${p}  ${who}, ${what}`;
+}
+function targetGroups(){
+  const red=[],svc=[],seen=new Set(),add=(l,v)=>{if(!seen.has(v)){seen.add(v);l.push(v);}};
+  state.reds.forEach(r=>['127.0.0.1',...hostIPs(r.host)].forEach(a=>add(red,`${a}:${r.lport}`)));
+  HOSTS.forEach(h=>h.services.forEach(s=>{
+    if(s.bind==='lo')add(svc,`127.0.0.1:${s.port}`);
+    else hostIPs(h.id).forEach(a=>add(svc,`${a}:${s.port}`));
+  }));
+  return [['Redirector listeners',red],['Services, direct',svc]].filter(g=>g[1].length);
+}
+function renderTargets(){
+  const from=$('#t-from'),to=$('#t-to'),fv=from.value||'workstation',tv=to.value;
+  from.innerHTML=HOSTS.map(h=>`<option value="${h.id}">${esc(h.name)}</option>`).join('');
+  from.value=fv;
+  const opt=v=>`<option value="${esc(v)}">${esc(targetLabel(fv,v))}</option>`;
+  to.innerHTML=targetGroups().map(([g,vs])=>`<optgroup label="${g}">${vs.map(opt).join('')}</optgroup>`).join('');
+  if(tv)setTarget(tv);
+}
+function setTarget(v){
+  const to=$('#t-to');
+  if(![...to.options].some(o=>o.value===v)){
+    const o=document.createElement('option');o.value=v;o.textContent=targetLabel($('#t-from').value,v);to.appendChild(o);
+  }
+  to.value=v;
+}
+function setSender(h){$('#t-from').value=h;renderTargets();}
+
+/* ---------- redirectors card ---------- */
+function renderReds(){
+  const box=$('#reds');
+  if(!state.reds.length){box.innerHTML='<p class="empty">No redirectors yet. Click a host and set one up in the terminal.</p>';return;}
+  box.innerHTML=state.reds.map(r=>{
+    const t=resolve(r.taddr,r.host);
+    const reachNote=(t.host?(reach(r.host,t)!==null?`forwards to ${nm(t.host)}:${r.tport}`:`can't reach ${r.taddr} from ${nm(r.host)}`):`${r.taddr} is unknown on ${nm(r.host)}`)+(r.oneway?' · forward only, no reply path':'');
+    const who=HOSTS.filter(h=>{const d=locate(h.id,r.scope==='lo'?'127.0.0.1':(r.scope==='all'?natAddr(h.id,r.host):r.scope));return d.host===r.host&&d.route&&scopeAllows(r.scope,d.iface);});
+    return `<div class="red ${r.tool}">
+      <span class="head">${esc(nm(r.host))}: ${esc(dispTool(r.tool))} ${scopeIP(r.scope)}:${r.lport} ${r.oneway?'⇢':'↦'} ${esc(r.taddr)}:${r.tport}</span>
+      <span class="note">${esc(reachNote)}</span>
+      <div class="chips"><small>test from:</small>${who.map(h=>`<button class="chip" type="button" data-from="${h.id}" data-to="${esc((r.scope==='lo'?'127.0.0.1':(r.scope==='all'?natAddr(h.id,r.host):r.scope)))}:${r.lport}">${esc(h.name)}</button>`).join('')||'<small>only itself</small>'}</div>
+      <div class="act"><button class="stop" type="button" data-stop="${r.id}">Stop</button></div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------- examples ---------- */
+const EXAMPLES={
+  linux:[
+    ['socat: relay to appsrv web','socat TCP-LISTEN:8080,fork,reuseaddr TCP:10.0.0.50:8080'],
+    ['socat: relay to postgres','socat TCP-LISTEN:5432,fork,reuseaddr TCP:10.0.0.50:5432'],
+    ['ncat: relay to appsrv web','ncat -l 8080 --sh-exec "ncat 10.0.0.50 8080"'],
+    ['socat: loopback-only (can others reach it?)','socat TCP-LISTEN:8080,bind=127.0.0.1,fork TCP:10.0.0.50:8080'],
+    ['nc + pipe: step 1, make the fifo','mkfifo /tmp/relay'],
+    ['nc + pipe: step 2, two-way relay','nc -l 8080 < /tmp/relay | nc 10.0.0.50 8080 > /tmp/relay'],
+    ['nc plain pipe: forward only (the trap)','nc -l 8080 | nc 10.0.0.50 8080'],
+    ['nc: test a port','nc -zv 10.0.0.50 8080']
+  ],
+  windows:[
+    ['portproxy: relay to dmz app','netsh interface portproxy add v4tov4 listenport=3000 connectport=3000 connectaddress=172.16.0.50'],
+    ['portproxy: list rules','netsh interface portproxy show all'],
+    ['portproxy: delete a rule','netsh interface portproxy delete v4tov4 listenport=3000'],
+    ['test a port','Test-NetConnection 172.16.0.50 -Port 3000']
+  ]
+};
+function renderExamples(){
+  const ex=$('#examples'),list=EXAMPLES[H(state.term).os];
+  ex.innerHTML='<option value="">Load an example…</option>'+list.map((x,i)=>`<option value="${i}">${esc(x[0])}</option>`).join('');
+}
+
+/* ---------- challenges ---------- */
+const CH=[
+  {t:'socat',title:'Reach the web UI',
+   goal:'From <code>workstation</code>, reach the web UI on <code>appsrv</code> (10.0.0.50:8080). workstation is on the edge net only; <code>relay</code> bridges edge and core.',
+   tests:[{from:'workstation',addr:'10.10.0.20',port:8080,e:{host:'appsrv',port:8080}}],
+   hint:'Run a socat listener on relay, bound so workstation can reach it, forwarding to appsrv:8080.',
+   sol:[{host:'relay',cmd:'socat TCP-LISTEN:8080,fork,reuseaddr TCP:10.0.0.50:8080'}],
+   solText:'On <code>relay</code>: <code>socat TCP-LISTEN:8080,fork,reuseaddr TCP:10.0.0.50:8080</code>. Then from workstation connect to <code>10.10.0.20:8080</code>.'},
+  {t:'ncat',title:'Reach postgres with ncat',
+   goal:'Same idea, different tool. From <code>workstation</code>, reach postgres on <code>appsrv</code> (10.0.0.50:5432), relaying through <code>relay</code> with ncat.',
+   tests:[{from:'workstation',addr:'10.10.0.20',port:5432,e:{host:'appsrv',port:5432}}],
+   hint:'ncat -l <port> --sh-exec "ncat <host> <port>" on relay.',
+   sol:[{host:'relay',cmd:'ncat -l 5432 --sh-exec "ncat 10.0.0.50 5432"'}],
+   solText:'On <code>relay</code>: <code>ncat -l 5432 --sh-exec "ncat 10.0.0.50 5432"</code>. Then connect from workstation to <code>10.10.0.20:5432</code>.'},
+  {t:'netsh',title:'Windows portproxy',
+   goal:'From <code>appsrv</code> (on the core net), reach the internal app on <code>dmzsrv</code> (172.16.0.50:3000). Only <code>winrelay</code> touches the dmz. Set up a portproxy on winrelay.',
+   tests:[{from:'appsrv',addr:'10.0.0.2',port:3000,e:{host:'dmzsrv',port:3000}}],
+   hint:'On winrelay: netsh interface portproxy add v4tov4 listenport=3000 connectport=3000 connectaddress=172.16.0.50. appsrv reaches winrelay at 10.0.0.2.',
+   sol:[{host:'winrelay',cmd:'netsh interface portproxy add v4tov4 listenport=3000 connectport=3000 connectaddress=172.16.0.50'}],
+   solText:'On <code>winrelay</code>: <code>netsh interface portproxy add v4tov4 listenport=3000 connectport=3000 connectaddress=172.16.0.50</code>. Then from appsrv connect to <code>10.0.0.2:3000</code>.'},
+  {t:'chain',title:'Chain across two jumps',
+   goal:'From <code>workstation</code>, reach the internal app on <code>dmzsrv</code> (172.16.0.50:3000). It takes two relays: <code>relay</code> (edge→core) and <code>winrelay</code> (core→dmz).',
+   tests:[{from:'workstation',addr:'10.10.0.20',port:3000,e:{host:'dmzsrv',port:3000}}],
+   hint:'Point a socat listener on relay at winrelay\'s portproxy (10.0.0.2:3000), and have winrelay\'s portproxy forward to dmzsrv:3000.',
+   sol:[{host:'winrelay',cmd:'netsh interface portproxy add v4tov4 listenport=3000 connectport=3000 connectaddress=172.16.0.50'},
+        {host:'relay',cmd:'socat TCP-LISTEN:3000,fork,reuseaddr TCP:10.0.0.2:3000'}],
+   solText:'Two hops:<br>• On <code>winrelay</code>: <code>netsh interface portproxy add v4tov4 listenport=3000 connectport=3000 connectaddress=172.16.0.50</code><br>• On <code>relay</code>: <code>socat TCP-LISTEN:3000,fork,reuseaddr TCP:10.0.0.2:3000</code><br>Then from workstation connect to <code>10.10.0.20:3000</code>. The packet crosses relay, then winrelay, then dmzsrv.'},
+  {t:'ncpipe',title:'Two-way relay with nc',
+   goal:'Plain <code>nc</code> plus a pipe only carries traffic one way. From <code>workstation</code>, reach the web UI on <code>appsrv</code> (10.0.0.50:8080) by relaying through <code>relay</code> with <code>nc</code> and a named pipe for the return path.',
+   hint:'On relay: mkfifo a pipe, then nc -l 8080 < pipe | nc 10.0.0.50 8080 > pipe. The fifo loops the reply back; without it the session stalls.',
+   sol:[{host:'relay',cmd:'mkfifo /tmp/relay'},{host:'relay',cmd:'nc -l 8080 < /tmp/relay | nc 10.0.0.50 8080 > /tmp/relay'}],
+   tests:[{from:'workstation',addr:'10.10.0.20',port:8080,e:{host:'appsrv',port:8080}}],
+   solText:'On <code>relay</code>, two commands:<br>• <code>mkfifo /tmp/relay</code><br>• <code>nc -l 8080 &lt; /tmp/relay | nc 10.0.0.50 8080 &gt; /tmp/relay</code><br>Then from workstation connect to <code>10.10.0.20:8080</code>. Drop the fifo and the reply has no way back.'},
+  {t:'socat',title:'The loopback trap',
+   goal:'On <code>relay</code>, a socat listener bound to <code>127.0.0.1:8080</code> forwards to appsrv:8080 — but workstation can\'t use it. Fix it so workstation reaches appsrv:8080, without changing the target.',
+   preset:[{host:'relay',cmd:'socat TCP-LISTEN:8080,bind=127.0.0.1,fork TCP:10.0.0.50:8080'}],
+   tests:[{from:'workstation',addr:'10.10.0.20',port:8080,e:{host:'appsrv',port:8080}}],
+   hint:'A listener on 127.0.0.1 only accepts connections from the host itself. Two sockets can\'t share a port, so Stop the loopback listener first (the Stop button on its card, like Ctrl-C), then start one bound to all interfaces (drop bind=, or bind=0.0.0.0).',
+   sol:[{host:'relay',cmd:'socat TCP-LISTEN:8080,fork,reuseaddr TCP:10.0.0.50:8080'}],
+   solText:'Stop the loopback listener (its Stop button), then rebind to every interface. On <code>relay</code>: <code>socat TCP-LISTEN:8080,fork,reuseaddr TCP:10.0.0.50:8080</code> (no <code>bind=127.0.0.1</code>). Apply solution does the stop for you.'}
+];
+let solved=new Set();
+try{solved=new Set(JSON.parse(localStorage.getItem('redirlab-solved')||'[]'));}catch(e){}
+function saveSolved(){try{localStorage.setItem('redirlab-solved',JSON.stringify([...solved]));}catch(e){}}
+function renderChList(){
+  $('#chlist').innerHTML=CH.map((c,i)=>`<li><button type="button" data-i="${i}" aria-current="${i===state.ch}"><span class="n">${i+1}</span><span>${c.title}</span><span class="tg ${c.t}">${c.t}</span><span class="dot ${solved.has(c.title)?'done':''}"></span></button></li>`).join('');
+  $('#solved-count').textContent=` ${solved.size}/${CH.length}`;
+}
+function clearReds(){state.reds=[];state.fifos={};redSeq=1;}
+function openChallenge(i){
+  state.ch=i;const c=CH[i];
+  clearReds();logLines=[];
+  state.term='workstation';
+  if(c.preset)c.preset.forEach(s=>runOn(s.host,s.cmd,false));
+  state.term='workstation';renderPrompt();
+  $('#cmd').value='';
+  $('#ch-title').textContent=`${i+1} · ${c.title}`;
+  $('#ch-goal').innerHTML=c.goal;
+  $('#ch-hint-text').textContent=c.hint;
+  $('#ch-sol-text').innerHTML=c.solText;
+  $('#ch-hint').open=false;$('#ch-sol').open=false;
+  $('#ch-results').textContent='';$('#ch-banner').hidden=true;
+  renderChList();renderLog();renderAll();resetPlayer();
+}
+let lastChecks=[];
+function check(){
+  const c=CH[state.ch];
+  lastChecks=c.tests.map(t=>{
+    const tr=trace(t.from,t.addr,t.port);
+    const pass=t.e==='fail'?!tr.ok:(tr.ok&&tr.final.host===t.e.host&&tr.final.port===t.e.port);
+    return {t,tr,pass};
+  });
+  $('#ch-results').innerHTML=lastChecks.map((r,i)=>{
+    const exp=r.t.e==='fail'?'should be blocked':`should reach ${svcAt(r.t.e.host,r.t.e.port).name} on ${nm(r.t.e.host)}`;
+    const why=!r.pass?(r.t.e==='fail'?`it got through: ${r.tr.reason.toLowerCase()}`:r.tr.reason):'';
+    return `<li class="${r.pass?'pass':'fail'}" data-k="${i}" tabindex="0"><span class="m">${r.pass?'✓':'✕'}</span><span class="d"><span>${esc(nm(r.t.from))} → ${esc(r.t.addr)}:${r.t.port}</span><span class="x">${esc(exp)}</span>${why?`<span class="why">${esc(why)}</span>`:''}</span></li>`;
+  }).join('');
+  const all=lastChecks.every(r=>r.pass);
+  $('#ch-banner').hidden=!all;
+  if(all){solved.add(c.title);saveSolved();renderChList();}
+  const show=lastChecks.find(r=>!r.pass)||lastChecks[0];
+  setSender(show.t.from);setTarget(`${show.t.addr}:${show.t.port}`);
+  playAll(show.tr);
+}
+function replayCheck(k){const r=lastChecks[k];if(!r)return;setSender(r.t.from);setTarget(`${r.t.addr}:${r.t.port}`);playAll(trace(r.t.from,r.t.addr,r.t.port));}
+
+/* ---------- state + wiring ---------- */
+const state={reds:[],fifos:{},term:'workstation',mode:'sandbox',ch:0};
+const fifosOf=host=>state.fifos[host]||(state.fifos[host]=new Set());
+function renderAll(){renderDiagram();renderReds();renderTargets();renderExamples();}
+function selectHost(id){
+  state.term=id;renderPrompt();renderDiagram();
+  if(state.mode==='sandbox'){setSender(id);renderExamples();}
+}
+function setMode(m){
+  state.mode=m;
+  $('.main').classList.toggle('ch',m==='challenges');
+  $('#tab-sandbox').setAttribute('aria-selected',m==='sandbox');
+  $('#tab-challenges').setAttribute('aria-selected',m==='challenges');
+  $('#panel-sandbox').hidden=m!=='sandbox';
+  $('#panel-challenges').hidden=m!=='challenges';
+  if(m==='challenges')openChallenge(state.ch);
+  else{clearReds();logLines=[];state.term='workstation';$('#cmd').value='';renderPrompt();renderLog();renderAll();resetPlayer();setSender('workstation');}
+}
+$('#tab-sandbox').addEventListener('click',()=>setMode('sandbox'));
+$('#tab-challenges').addEventListener('click',()=>setMode('challenges'));
+$('#cmd-form').addEventListener('submit',e=>{e.preventDefault();const v=$('#cmd').value;if(v.trim()){history.push(v);hpos=history.length;}runOn(state.term,v);$('#cmd').value='';});
+$('#cmd').addEventListener('keydown',e=>{
+  if(e.key==='ArrowUp'){if(hpos>0){hpos--;$('#cmd').value=history[hpos]||'';e.preventDefault();}}
+  else if(e.key==='ArrowDown'){if(hpos<history.length){hpos++;$('#cmd').value=history[hpos]||'';e.preventDefault();}}
+});
+$('#clear-log').addEventListener('click',()=>{logLines=[];renderLog();});
+$('#net').addEventListener('click',e=>{const g=e.target.closest('[data-host]');if(g)selectHost(g.dataset.host);});
+$('#net').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const g=e.target.closest('[data-host]');if(g){e.preventDefault();selectHost(g.dataset.host);}}});
+$('#p-send').addEventListener('click',()=>{const t=newTrace();if(t)playAll(t);});
+$('#p-step').addEventListener('click',stepOnce);
+$('#p-reset').addEventListener('click',resetPlayer);
+$('#t-from').addEventListener('change',()=>{renderTargets();resetPlayer();});
+$('#t-to').addEventListener('change',resetPlayer);
+$('#reds').addEventListener('click',e=>{
+  const stop=e.target.closest('[data-stop]');
+  if(stop){state.reds=state.reds.filter(r=>r.id!==+stop.dataset.stop);renderAll();resetPlayer();return;}
+  const chip=e.target.closest('.chip');
+  if(chip){setSender(chip.dataset.from);setTarget(chip.dataset.to);const t=newTrace();if(t)playAll(t);}
+});
+$('#examples').addEventListener('change',()=>{
+  const ex=$('#examples');if(ex.value==='')return;
+  const [,cmd]=EXAMPLES[H(state.term).os][+ex.value];
+  $('#cmd').value=cmd;ex.value='';$('#cmd').focus();
+});
+$('#chlist').addEventListener('click',e=>{const b=e.target.closest('button');if(b)openChallenge(+b.dataset.i);});
+$('#ch-check').addEventListener('click',()=>{const v=$('#cmd').value.trim();if(v){history.push(v);hpos=history.length;runOn(state.term,v);$('#cmd').value='';}check();});
+$('#ch-reset').addEventListener('click',()=>openChallenge(state.ch));
+$('#ch-apply').addEventListener('click',()=>{
+  const c=CH[state.ch];clearReds();logLines=[];
+  if(c.preset)c.preset.forEach(s=>runOn(s.host,s.cmd,false));
+  c.sol.forEach(s=>runOn(s.host,s.cmd,false));
+  state.term='workstation';renderPrompt();renderLog();renderAll();resetPlayer();
+});
+$('#ch-results').addEventListener('click',e=>{const li=e.target.closest('li');if(li)replayCheck(+li.dataset.k);});
+$('#ch-results').addEventListener('keydown',e=>{if(e.key==='Enter'){const li=e.target.closest('li');if(li)replayCheck(+li.dataset.k);}});
+
+renderPrompt();renderChList();setMode('sandbox');
+})();
+</script>
+</body>
+</html>
