@@ -98,7 +98,7 @@ button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-vis
 .sw.r{width:12px;height:12px;border:1.5px solid var(--R);background:var(--R-soft);border-radius:2px}
 .sw.c{width:12px;height:12px;border:2px solid var(--L);border-radius:50%;background:var(--surface)}
 .sw.rg{width:10px;height:10px;border-radius:50%;background:var(--tunnel);box-shadow:0 0 0 2px var(--surface),0 0 0 3.5px var(--tunnel),0 0 0 5.5px var(--surface),0 0 0 7px var(--tunnel);margin:0 4px}
-.sw.n{width:22px;height:12px;border:1.2px solid var(--line-strong);border-radius:6px;background:var(--zone)}
+.sw.n{width:12px;height:12px;border:2px solid var(--ink-soft);border-radius:50%;background:var(--surface)}
 .trace{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line);padding-top:10px;min-height:46px}
 .steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-family:var(--f-mono);font-size:12.5px}
 .steps li{display:flex;gap:8px;align-items:center;color:var(--muted)}
@@ -215,9 +215,12 @@ dialog::backdrop{background:rgba(10,16,22,.45)}
 .natlab{font:600 9.5px var(--f-mono);fill:var(--muted)}
 .node{cursor:grab;touch-action:none;outline:none}
 .dragging .node{cursor:grabbing}
-.netnode rect{fill:var(--zone);stroke:var(--line-strong);stroke-width:1.2}
-.netnode .nn{font:600 12px var(--f-display);fill:var(--ink);letter-spacing:.04em}
-.netnode .nc{font:10.5px var(--f-mono);fill:var(--muted)}
+.netnode .dot{fill:var(--surface);stroke:var(--ink-soft);stroke-width:2}
+.netnode .hit{fill:transparent;stroke:none}
+.node.sel .dot,.netnode:focus-visible .dot{stroke:var(--L);stroke-width:3}
+.netlab .nn{font:600 12px var(--f-display);fill:var(--ink);letter-spacing:.04em}
+.netlab .nc{font:10.5px var(--f-mono);fill:var(--muted)}
+.netlab text{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round}
 .host rect{fill:var(--surface);stroke:var(--ink-soft);stroke-width:1.2}
 .host.me rect{stroke:var(--tunnel);stroke-width:2}
 .node.sel rect,.node:focus-visible rect{stroke:var(--L);stroke-width:2.5}
@@ -783,12 +786,30 @@ function connect(from,addr,port){
 }
 
 /* ---------- geometry ---------- */
-const HW=88,HH=38,NH=19;
-const netHW=n=>Math.max(66,Math.max(n.name.length*7,n.cidr.length*6.6)/2+14);
-function box(id){const h=H(id);if(h)return {x:h.x,y:h.y,hw:HW,hh:HH};const n=N(id);return {x:n.x,y:n.y,hw:netHW(n),hh:NH};}
+const HW=88,HH=38,NR=7;   // hosts are boxes; networks are dots of radius NR
+function box(id){const h=H(id);if(h)return {x:h.x,y:h.y,hw:HW,hh:HH};const n=N(id);return {x:n.x,y:n.y,hw:NR,hh:NR,dot:true};}
 const ctr=id=>{const b=box(id);return {x:b.x,y:b.y};};
-// The point where a line from the box's centre toward (tx,ty) leaves the box.
-function bd(id,to){const b=box(id),dx=to.x-b.x,dy=to.y-b.y;if(!dx&&!dy)return {x:b.x,y:b.y};const s=Math.min(dx?b.hw/Math.abs(dx):Infinity,dy?b.hh/Math.abs(dy):Infinity);return {x:b.x+dx*s,y:b.y+dy*s};}
+// The point where a line from the node's centre toward (tx,ty) leaves it: box edge for hosts, circle edge for networks.
+function bd(id,to){const b=box(id),dx=to.x-b.x,dy=to.y-b.y;if(!dx&&!dy)return {x:b.x,y:b.y};if(b.dot){const d=Math.hypot(dx,dy);return {x:b.x+dx/d*NR,y:b.y+dy/d*NR};}const s=Math.min(dx?b.hw/Math.abs(dx):Infinity,dy?b.hh/Math.abs(dy):Infinity);return {x:b.x+dx*s,y:b.y+dy*s};}
+// A network's label goes on whichever side (above, right, below, left) is furthest from the lines leaving its dot.
+// Above and below get a small bonus: the label is wide, so it needs more room beside the dot than over it.
+function netSide(n){
+  const angs=T.hosts.filter(h=>onNet(h.id,n.id)).map(h=>Math.atan2(h.y-n.y,h.x-n.x));
+  if(!angs.length) return 'above';
+  const far=a=>Math.min(...angs.map(b=>{const d=Math.abs(a-b)%(2*Math.PI);return Math.min(d,2*Math.PI-d);}));
+  const opts=[['above',-Math.PI/2,.35],['below',Math.PI/2,.3],['right',0,0],['left',Math.PI,0]];
+  return opts.map(([s,a,bonus])=>[s,far(a)+bonus]).sort((x,y)=>y[1]-x[1])[0][0];
+}
+// Lines of a network's label block (name, CIDR, then any SSH session labels), each with its position.
+function netLabel(n,extra){
+  const side=netSide(n),lines=[[n.name,'nn'],[n.cidr,'nc'],...(extra||[]).map(s=>[s,'tube-lab'])],G=13;
+  const at=(i)=>side==='above'?{x:n.x,y:n.y-NR-8-(lines.length-1-i)*G,a:'middle'}
+    :side==='below'?{x:n.x,y:n.y+NR+14+i*G,a:'middle'}
+    :side==='right'?{x:n.x+NR+8,y:n.y-2+i*G,a:'start'}
+    :{x:n.x-NR-8,y:n.y-2+i*G,a:'end'};
+  return lines.map(([s,c],i)=>({s,c,...at(i)}));
+}
+const labW=l=>l.s.length*(l.c==='nn'?6.6:6.4);
 const r1=v=>Math.round(v*10)/10;
 const poly=pts=>pts.map((p,i)=>(i?'L':'M')+r1(p.x)+' '+r1(p.y)).join(' ');
 function loopD(id){const b=box(id),t=b.y-b.hh;return `M${b.x-26} ${t} C ${b.x-50} ${t-64}, ${b.x+50} ${t-64}, ${b.x+26} ${t}`;}
@@ -838,7 +859,11 @@ let frozenVB=null;
 function fitView(){
   if(frozenVB) return frozenVB;
   let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
-  T.networks.forEach(n=>{const w=netHW(n);x0=Math.min(x0,n.x-w);x1=Math.max(x1,n.x+w);y0=Math.min(y0,n.y-NH-20);y1=Math.max(y1,n.y+NH+30);});
+  T.networks.forEach(n=>{
+    x0=Math.min(x0,n.x-NR-4);x1=Math.max(x1,n.x+NR+4);y0=Math.min(y0,n.y-NR-4);y1=Math.max(y1,n.y+NR+4);
+    netLabel(n,sessLabels()[n.id]).forEach(l=>{const w=labW(l),lx=l.a==='start'?l.x:l.a==='end'?l.x-w:l.x-w/2;
+      x0=Math.min(x0,lx);x1=Math.max(x1,lx+w);y0=Math.min(y0,l.y-12);y1=Math.max(y1,l.y+4);});
+  });
   T.hosts.forEach(h=>{x0=Math.min(x0,h.x-HW-10);x1=Math.max(x1,h.x+HW+10);y0=Math.min(y0,h.y-HH-70);y1=Math.max(y1,h.y+HH+80);});
   x0-=14;x1+=14;y0-=6;y1+=6;
   const w=Math.max(1000,x1-x0),hgt=Math.max(380,y1-y0);
@@ -849,6 +874,17 @@ function hostLines(h){
   const ips=h.ifaces.map(i=>i.ip||'NAT').join(' · ')||'no network';
   const sv=[...(h.sshd?[`sshd :${h.sshd.port}`]:[]),...h.services.map(s=>`${s.name} ${s.bind==='lo'?'127.0.0.1':''}:${s.port}`)].join(' · ');
   return [cut(ips,32),cut(sv,36)];
+}
+// One label per live SSH session, grouped by the network its last hop crosses (or by host pair if none).
+function sessLabels(){
+  const out={direct:{}};
+  liveSessions().slice().sort((a,b)=>a.id-b.id).forEach(S=>{
+    const last=S.segs[S.segs.length-1];if(!last) return;
+    const s=`SSH #${S.id} → ${nm(S.server)}:${S.port}${S.via.length?` (inside #${S.via.join(', #')})`:''}`;
+    if(last.net&&N(last.net)&&onNet(last.a,last.net)&&onNet(last.b,last.net)) (out[last.net]=out[last.net]||[]).push(s);
+    else {const k=last.a+'>'+last.b;(out.direct[k]=out.direct[k]||{hop:last,labels:[]}).labels.push(s);}
+  });
+  return out;
 }
 function renderDiagram(){
   const svg=$('#net'),g=$('#static');
@@ -865,6 +901,12 @@ function renderDiagram(){
     el('line',{x1:r1(a.x),y1:r1(a.y),x2:r1(b.x),y2:r1(b.y),class:'link'+(i.ip?'':' nat')},g);
     if(!i.ip) tx(g,r1((a.x+b.x)/2+6),r1((a.y+b.y)/2),'NAT','natlab','start');
   }));
+  // network dots, under the tunnels so they never hide one; a wider invisible circle makes them easy to grab
+  T.networks.forEach(n=>{
+    const ng=el('g',{class:'node netnode'+(state.sel===n.id?' sel':''),'data-node':n.id,tabindex:0,role:'button','aria-label':`Network ${n.name} ${n.cidr}`},g);
+    el('circle',{cx:n.x,cy:n.y,r:18,class:'hit'},ng);
+    el('circle',{cx:n.x,cy:n.y,r:NR,class:'dot'},ng);
+  });
   // ssh connections, outermost first; a session inside another is drawn narrower on top of it
   live.forEach(S=>{
     if(!S.segs.length) return;
@@ -879,19 +921,16 @@ function renderDiagram(){
       el('path',{d:stepD({kind:'out',t,dest:r.host,net:r.net}),class:'map '+(good?t.type:'bad')},g);
     }
   });
-  // networks
+  // network labels (name, CIDR and the SSH sessions whose last hop crosses it), beside the dot and clickable like it
+  const sl=sessLabels();
   T.networks.forEach(n=>{
-    const w=netHW(n),ng=el('g',{class:'node netnode'+(state.sel===n.id?' sel':''),'data-node':n.id,tabindex:0,role:'button','aria-label':`Network ${n.name} ${n.cidr}`},g);
-    el('rect',{x:r1(n.x-w),y:n.y-NH,width:r1(w*2),height:NH*2,rx:NH},ng);
-    tx(ng,n.x,n.y-3,n.name,'nn');tx(ng,n.x,n.y+11,n.cidr,'nc');
+    const lg=el('g',{class:'node netlab','data-node':n.id},g);
+    netLabel(n,sl[n.id]).forEach(l=>tx(lg,r1(l.x),r1(l.y),l.s,l.c,l.a));
   });
-  // one label per session, under the network of its last hop
-  const labs={};
-  live.slice().sort((a,b)=>a.id-b.id).forEach(S=>{
-    const last=S.segs[S.segs.length-1];if(!last) return;
-    const key=last.net||last.a+'>'+last.b,k=labs[key]=(labs[key]||0)+1;
-    const p=hopPts(last),c=p.length===3?p[1]:{x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2};
-    tx(g,r1(c.x),r1(c.y+NH+15+(k-1)*14),`SSH #${S.id} → ${nm(S.server)}:${S.port}${S.via.length?` (inside #${S.via.join(', #')})`:''}`,'tube-lab');
+  // a session whose last hop crosses no drawn network is labelled at the middle of that hop
+  Object.entries(sl.direct).forEach(([key,list])=>{
+    const p=hopPts(list.hop),c={x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2};
+    list.labels.forEach((s,i)=>tx(g,r1(c.x),r1(c.y+20+i*14),s,'tube-lab'));
   });
   // hosts
   T.hosts.forEach(h=>{
